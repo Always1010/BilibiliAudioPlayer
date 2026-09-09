@@ -749,14 +749,37 @@ async function openSectionDetail(section) {
   ui.view = "detail";
   ui.loading = true;
   ui.error = "";
+  ui.notice = "";
   render();
   try {
-    ui.detailData = await send(MESSAGE.loadSection, {
-      creatorId: creator.id,
-      section: { id: section.id, type: section.type },
-      page: 1,
-      pageSize: section.type === "all" ? 50 : 100
-    });
+    const pageSize = section.type === "all" ? 50 : 100;
+    if (currentTrackSortDirection() === "desc") {
+      const result = await loadAllSectionPages(
+        (page, size) => send(MESSAGE.loadSection, {
+          creatorId: creator.id,
+          section: { id: section.id, type: section.type },
+          page,
+          pageSize: size
+        }),
+        {
+          pageSize,
+          onProgress: ({ items, total }) => {
+            ui.notice = `正在读取“${section.title}”：${Math.min(items.length, total)} / ${total}`;
+            render();
+          }
+        }
+      );
+      ui.detailData = { ...result, pageSize };
+      ui.detailPage = result.page;
+      ui.notice = "";
+    } else {
+      ui.detailData = await send(MESSAGE.loadSection, {
+        creatorId: creator.id,
+        section: { id: section.id, type: section.type },
+        page: 1,
+        pageSize
+      });
+    }
   } catch (error) {
     ui.error = toErrorMessage(error);
   } finally {
@@ -817,6 +840,22 @@ async function loadMoreDetail() {
   ui.loading = true;
   render();
   try {
+    if (currentTrackSortDirection() === "desc") {
+      const creator = creatorForSection(section);
+      const pageSize = section.type === "all" ? 50 : 100;
+      const result = await loadAllSectionPages(
+        (page, size) => send(MESSAGE.loadSection, {
+          creatorId: creator?.id,
+          section: { id: section.id, type: section.type },
+          page,
+          pageSize: size
+        }),
+        { pageSize }
+      );
+      ui.detailData = { ...result, pageSize };
+      ui.detailPage = result.page;
+      return;
+    }
     const nextPage = ui.detailPage + 1;
     const listing = await send(MESSAGE.loadSection, {
       creatorId: creatorForSection(section)?.id,
@@ -1488,6 +1527,11 @@ root.addEventListener("click", async event => {
     }
     else if (action === "toggle-sort-order") {
       const next = currentTrackSortDirection() === "desc" ? "asc" : "desc";
+      if (next === "desc" && ui.activeSection) {
+        const loaded = ui.detailData?.items?.length ?? ui.activeSection.items?.length ?? 0;
+        const total = Number(ui.detailData?.total ?? ui.activeSection.total) || loaded;
+        if (loaded < total) await loadCompleteSection(ui.activeSection);
+      }
       ui.app.settings = await send(MESSAGE.saveSettings, { patch: { sectionSortDirection: next } });
       ui.notice = `已切换为${trackSortLabel()}，合集、系列和全部作品会统一使用此顺序。`;
       render();
