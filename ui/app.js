@@ -447,8 +447,14 @@ function render() {
 function renderPlayer() {
   const slot = root.querySelector(".player-slot");
   if (slot) {
+    const previousQueue = slot.querySelector(".play-queue-list");
+    const scrollTop = previousQueue ? previousQueue.scrollTop : null;
     slot.innerHTML = playerAreaMarkup();
     applyIconTooltips(slot);
+    if (scrollTop !== null) {
+      const nextQueue = slot.querySelector(".play-queue-list");
+      if (nextQueue) nextQueue.scrollTop = scrollTop;
+    }
   }
 }
 
