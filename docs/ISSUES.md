@@ -395,3 +395,13 @@
 - 解决方案：加载 UP 主主页时检查“全部作品”、合集和系列预览中的时长；只要发现零时长摘要，就跳过短期缓存并重新读取最新接口数据。正常缓存仍保持 10 分钟复用，避免无意义请求。
 - 验证方式：执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.7.7 JSON 检查和 `git diff --check`；确认旧摘要下次打开主页会自动刷新为真实时长。
 - 相关文件：`background/service-worker.js`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-038：优质合集和系列需要跨 UP 主快速访问
+
+- 日期：2026-09-09
+- 状态：已解决
+- 现象：用户发现优质合集或系列后，只能回到原 UP 主主页再次查找；当关注的 UP 主较多或栏目较深时，重复定位成本很高。
+- 原因：现有本地持久化只有作品级播放列表，没有栏目级实体；合集与系列的 ID 需要与所属 UP 主 UID、栏目类型共同使用才能稳定重新请求作品数据。
+- 解决方案：新增收藏栏目数据层和后台命令，保存栏目类型、栏目 ID、UP 主 UID、UP 主名称、标题、作品数与收藏时间，以 `UP主UID:类型:栏目ID` 去重。封面、作品预览及音频文件不写入收藏数据，后续由在线栏目接口加载；仅允许收藏合集和系列，不接受“全部作品”。
+- 验证方式：新增收藏栏目最小数据、去重、元数据更新、取消收藏和类型限制测试；执行全部 Node 测试、JavaScript 语法检查、Manifest 0.7.8 JSON 检查与 `git diff --check`。
+- 相关文件：`services/favorite-sections.js`、`tests/favorite-sections.test.mjs`、`shared/constants.js`、`shared/storage.js`、`background/service-worker.js`、`manifest.json`、`README.md`、`docs/ISSUES.md`

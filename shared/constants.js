@@ -5,7 +5,8 @@ export const STORAGE_KEYS = Object.freeze({
   settings: "settings",
   updateState: "updateState",
   subscriptions: "subscriptions",
-  playlists: "playlists"
+  playlists: "playlists",
+  favoriteSections: "favoriteSections"
 });
 
 export const DEFAULT_PLAYER = Object.freeze({
@@ -49,7 +50,8 @@ export const MESSAGE = Object.freeze({
   saveSettings: "SAVE_SETTINGS",
   checkUpdates: "CHECK_UPDATES",
   setSubscription: "SET_SUBSCRIPTION",
-  playlistCommand: "PLAYLIST_COMMAND"
+  playlistCommand: "PLAYLIST_COMMAND",
+  favoriteSectionCommand: "FAVORITE_SECTION_COMMAND"
 });
 
 export const UPDATE_ALARM = "bili-audio-update-check";
