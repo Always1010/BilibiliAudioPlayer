@@ -11,14 +11,18 @@ export class BilibiliApiError extends Error {
   }
 }
 
-async function fetchJson(path, { params = {}, wbi = false } = {}) {
+async function fetchJson(path, { params = {}, wbi = false, referrer = "" } = {}) {
   const query = wbi
     ? await signWbiParams(params)
     : new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)])).toString();
   const url = `${API_ROOT}${path}${query ? `?${query}` : ""}`;
   const response = await fetch(url, {
     credentials: "include",
-    headers: { Accept: "application/json" }
+    headers: { Accept: "application/json" },
+    ...(referrer ? {
+      referrer,
+      referrerPolicy: "strict-origin-when-cross-origin"
+    } : {})
   });
   if (!response.ok) throw new BilibiliApiError(`请求失败（HTTP ${response.status}）`, response.status);
   const payload = await response.json();
@@ -89,16 +93,24 @@ export async function getCreator(mid) {
 }
 
 export async function searchCreators(keyword, page = 1) {
-  const trimmed = String(keyword).trim();
+  const trimmed = String(keyword)
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .trim()
+    .replace(/^@+/, "")
+    .trim();
   if (!trimmed) return [];
   if (/^\d+$/.test(trimmed)) {
     return [await getCreator(trimmed)];
   }
 
   const data = await fetchJson("/x/web-interface/search/type", {
-    params: { search_type: "bili_user", keyword: trimmed, page }
+    params: { search_type: "bili_user", keyword: trimmed, page },
+    referrer: "https://search.bilibili.com/"
   });
-  return (data.result ?? []).map(normalizeCreator);
+  return (data.result ?? [])
+    .map(normalizeCreator)
+    .sort((left, right) => Number(right.name === trimmed) - Number(left.name === trimmed));
 }
 
 export async function listCreatorVideos(mid, page = 1, pageSize = 30) {
