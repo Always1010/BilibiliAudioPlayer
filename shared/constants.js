@@ -28,6 +28,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   activeCreatorId: null,
   updateIntervalMinutes: 180,
   defaultSort: "pubdate",
+  sectionSortDirection: "asc",
   defaultFormat: "original",
   mp3Bitrate: 192,
   rememberProgress: true,
