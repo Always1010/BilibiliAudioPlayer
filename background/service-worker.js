@@ -26,6 +26,7 @@ import {
   renamePlaylist,
   reorderPlaylistTrack
 } from "../services/playlists.js";
+import { mergeImportedPlaylists } from "../services/playlist-transfer.js";
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 let creatingOffscreen = null;
@@ -275,6 +276,7 @@ async function handlePlaylistCommand(command, payload = {}) {
     if (command === "reorderTrack") {
       return reorderPlaylistTrack(current, payload.playlistId, payload.fromIndex, payload.toIndex);
     }
+    if (command === "import") return mergeImportedPlaylists(current, payload.playlists, { mode: payload.mode });
     throw new Error(`未知播放列表命令：${command}`);
   });
 }
