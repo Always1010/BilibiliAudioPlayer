@@ -181,6 +181,15 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .permission-dialog h2 { margin: 2px 0 7px; font-size: 17px; }
 .permission-dialog p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
 .permission-dialog-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; margin-top: 3px; }
+.cache-toast-host { position: fixed; z-index: 70; right: 18px; bottom: 88px; pointer-events: none; }
+.cache-toast { display: grid; grid-template-columns: auto minmax(150px, 1fr) auto auto; align-items: center; gap: 10px; min-width: min(390px, calc(100vw - 36px)); padding: 11px 12px; color: var(--text); border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line)); border-radius: 14px; background: color-mix(in srgb, var(--surface) 92%, var(--accent-soft)); box-shadow: 0 14px 36px color-mix(in srgb, var(--text) 20%, transparent); pointer-events: auto; animation: toast-in 180ms ease-out; }
+.cache-toast-icon { display: grid; place-items: center; width: 32px; height: 32px; color: var(--accent); border-radius: 10px; background: var(--accent-soft); }
+.cache-toast strong, .cache-toast small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cache-toast small { margin-top: 3px; color: var(--muted); font-size: 11px; }
+.cache-toast-link { padding: 6px 8px; color: var(--accent); font-size: 12px; border: 0; border-radius: 7px; background: transparent; white-space: nowrap; }
+.cache-toast-link:hover, .cache-toast-close:hover { background: var(--surface-soft); }
+.cache-toast-close { width: 26px; height: 26px; padding: 0; color: var(--muted); border: 0; border-radius: 7px; background: transparent; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .playlist-picker { width: min(520px, 100%); max-height: min(72vh, 620px); overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 24px 70px #0005; }
 .playlist-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .playlist-picker-header h2 { margin: 0; font-size: 16px; }
@@ -315,6 +324,10 @@ html[data-layout="sidepanel"] .queue-state { max-width: 105px; }
 }
 
 @media (max-width: 480px) {
+  .cache-toast-host { right: 10px; bottom: 88px; left: 10px; }
+  .cache-toast { min-width: 0; grid-template-columns: auto minmax(0, 1fr) auto; }
+  .cache-toast-link { grid-column: 2; justify-self: start; padding-left: 0; }
+  .cache-toast-close { grid-column: 3; grid-row: 1; }
   .permission-dialog { grid-template-columns: 1fr; gap: 10px; }
   .permission-dialog-actions { flex-wrap: wrap; }
   .track-search-result-bar { align-items: stretch; flex-direction: column; }
