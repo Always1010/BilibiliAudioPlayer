@@ -232,3 +232,14 @@
 - 数据与文件边界：播放列表元数据仍不保存路径；删除或重命名列表不会自动删除、移动归档目录。归档清单和多位置索引负责建立逻辑关联，避免用户的实体归档被界面操作静默破坏。
 - 验证方式：新增归档清单纯函数测试，覆盖最小字段、逐项完成合并和损坏清单容错；扩展多位置覆盖统计测试，并执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.6.1 JSON 检查和 `git diff --check`。
 - 相关文件：`services/archive-manifest.js`、`services/cache-records.js`、`offscreen/offscreen.js`、`ui/app.js`、`tests/archive-manifest.test.mjs`、`tests/cache-records.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-022：浏览器缓存索引丢失后无法重新识别磁盘归档
+
+- 日期：2026-09-09
+- 状态：已解决
+- 修改背景：缓存目录被用于长期归档，用户可能手动搬迁整个目录、清理浏览器站点数据或遇到内部索引与磁盘文件不一致；磁盘音频仍存在时不应只能重新下载。
+- 原因：扩展只从 IndexedDB 读取缓存路径，没有扫描入口；即使文件名包含 BV 号、播放列表目录包含归档清单，也没有利用这些信息重建记录。失效路径只能在播放某首作品时被动发现。
+- 解决方案：缓存管理增加“扫描归档”。扫描前验证现有多位置记录并清除目录权限正常时确认丢失的位置；随后递归读取授权根目录，优先用 `哔哩音频清单.json` 恢复栏目身份、作品元数据、格式和顺序，没有清单时从 `[BV号]` 文件名恢复为通用归档位置。恢复只合并索引，不移动、重命名或删除任何磁盘文件，结果显示识别文件、清单和读取错误数量。
+- 权限边界：目录未授权时直接提示重新授权，不把不可访问误判为丢失；未知文件和不符合扩展命名规则的文件保持原样且不会进入索引。
+- 验证方式：扩展归档清单测试覆盖 MP3 文件名识别、无 BV 文件忽略、播放列表与全部作品目录作用域恢复；执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.6.2 JSON 检查和 `git diff --check`。
+- 相关文件：`services/archive-manifest.js`、`offscreen/offscreen.js`、`ui/app.js`、`tests/archive-manifest.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`

@@ -21,7 +21,9 @@ import { insertQueueItems, removeQueueItem, reorderQueue } from "../services/pla
 import {
   ARCHIVE_MANIFEST_FILENAME,
   buildArchiveManifest,
-  parseArchiveManifest
+  parseArchiveAudioFilename,
+  parseArchiveManifest,
+  recoveredArchiveScope
 } from "../services/archive-manifest.js";
 
 const audio = document.getElementById("audio");
@@ -347,6 +349,73 @@ async function updatePlaylistArchiveManifest(root, task, location) {
   await writable.close();
 }
 
+async function readArchiveManifest(directory) {
+  try {
+    const handle = await directory.getFileHandle(ARCHIVE_MANIFEST_FILENAME);
+    return parseArchiveManifest(await (await handle.getFile()).text());
+  } catch {
+    return null;
+  }
+}
+
+async function scanArchiveDirectory(directory, path, summary) {
+  const manifest = await readArchiveManifest(directory);
+  if (manifest) summary.manifests += 1;
+  const manifestItems = new Map((manifest?.items ?? []).filter(item => item.filename).map(item => [item.filename, item]));
+  for await (const [name, handle] of directory.entries()) {
+    if (handle.kind === "directory") {
+      await scanArchiveDirectory(handle, [...path, name], summary);
+      continue;
+    }
+    if (name === ARCHIVE_MANIFEST_FILENAME) continue;
+    const parsed = parseArchiveAudioFilename(name);
+    if (!parsed) continue;
+    try {
+      const file = await handle.getFile();
+      if (!file.size) continue;
+      const item = manifestItems.get(name) ?? {};
+      const scope = manifest?.scope?.key ? manifest.scope : recoveredArchiveScope(path);
+      const creator = item.creatorId || item.creatorName
+        ? { id: String(item.creatorId || ""), name: String(item.creatorName || "") }
+        : null;
+      const bitrate = parsed.format === "mp3" ? Number(item.bitrate) || null : null;
+      const location = {
+        id: manifest?.scope?.key
+          ? `${scope.key}:${parsed.format}:${parsed.format === "mp3" ? bitrate ?? "unknown" : "source"}`
+          : `recovered:${[...path, name].join("/")}`,
+        scope,
+        path: [...path, name],
+        format: parsed.format,
+        bitrate,
+        mimeType: parsed.format === "mp3" ? "audio/mpeg" : parsed.extension === "webm" ? "audio/webm" : "audio/mp4",
+        codec: parsed.format === "mp3" ? "mp3" : "",
+        size: file.size,
+        cachedAt: Number(file.lastModified) || Date.now(),
+        verifiedAt: Date.now()
+      };
+      await putCacheRecord({
+        trackId: parsed.bvid,
+        bvid: parsed.bvid,
+        title: item.title || parsed.title,
+        creator,
+        locations: [location]
+      });
+      summary.files += 1;
+    } catch {
+      summary.errors += 1;
+    }
+  }
+}
+
+async function scanCacheArchives() {
+  const root = await requireWritableDirectory();
+  const existing = await listCacheRecords();
+  for (const record of existing) await findCachedFiles(record);
+  const summary = { manifests: 0, files: 0, errors: 0 };
+  await scanArchiveDirectory(root, [], summary);
+  return summary;
+}
+
 async function fetchAudio(stream, track, writable = null) {
   const response = await fetchStreamResponse(stream);
 
@@ -518,6 +587,11 @@ async function handleCacheCommand(command, payload = {}) {
   if (command === "refreshDirectory") {
     clearCacheDirectoryHandle();
     return { refreshed: true };
+  }
+  if (command === "scanArchives") {
+    const recovery = await scanCacheArchives();
+    const [directory, records] = await Promise.all([getCacheDirectoryInfo(), listCacheRecords()]);
+    return cacheSnapshot({ directory, records, recovery });
   }
   if (command === "cacheTracks") {
     const format = payload.format === "mp3" ? "mp3" : "original";
