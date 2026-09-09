@@ -243,3 +243,13 @@
 - 权限边界：目录未授权时直接提示重新授权，不把不可访问误判为丢失；未知文件和不符合扩展命名规则的文件保持原样且不会进入索引。
 - 验证方式：扩展归档清单测试覆盖 MP3 文件名识别、无 BV 文件忽略、播放列表与全部作品目录作用域恢复；执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.6.2 JSON 检查和 `git diff --check`。
 - 相关文件：`services/archive-manifest.js`、`offscreen/offscreen.js`、`ui/app.js`、`tests/archive-manifest.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-023：扩展重载后目录权限失效没有主动提醒
+
+- 日期：2026-09-09
+- 状态：已解决
+- 现象：浏览器重新加载扩展后，已保存的本地缓存目录可能处于“需要授权”状态；用户若没有进入缓存管理页，很容易不知道本地文件无法被读取，播放便会回退到在线资源。
+- 原因：扩展启动时会读取目录权限状态，但该状态只显示在缓存管理页，没有根据已配置但未获授权的情况触发引导；重新授权入口也总是打开目录选择器，未优先使用已经保存的目录句柄请求权限。
+- 解决方案：启动后检测已配置目录的读写权限，非 `granted` 时展示一次模态提醒，说明对离线播放的影响，并提供“稍后处理”和“重新授权目录”。后者直接对保存的句柄请求读写权限，成功后刷新后台目录句柄与缓存状态；尚无保存句柄时才走目录选择流程。
+- 验证方式：扩展缓存目录测试覆盖已配置的 `prompt`、`denied`、`granted` 和未配置状态；执行全部 Node 测试、JavaScript 语法检查、Manifest 0.6.3 JSON 检查与 `git diff --check`。浏览器中重载扩展后可通过“稍后处理 / 重新授权目录”完成交互验收。
+- 相关文件：`services/file-store.js`、`tests/file-store.test.mjs`、`ui/app.js`、`ui/app.css`、`manifest.json`、`README.md`、`docs/ISSUES.md`

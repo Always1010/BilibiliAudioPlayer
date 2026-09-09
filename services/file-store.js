@@ -84,6 +84,19 @@ export async function chooseCacheDirectory() {
   return { name: handle.name, permission: "granted" };
 }
 
+export function needsCacheDirectoryReauthorization(directory) {
+  return Boolean(directory?.configured && directory.permission !== "granted");
+}
+
+export async function reauthorizeCacheDirectory() {
+  const handle = await getCacheDirectoryHandle();
+  if (!handle) return chooseCacheDirectory();
+  const permission = await handle.requestPermission({ mode: "readwrite" });
+  if (permission !== "granted") throw new Error("未获得缓存目录读写权限，请允许目录访问后重试");
+  directoryHandleCache.set(handle);
+  return { name: handle.name, permission };
+}
+
 export function getCacheDirectoryHandle() {
   return directoryHandleCache.get();
 }
@@ -103,7 +116,7 @@ export async function requireWritableDirectory() {
   const handle = await getCacheDirectoryHandle();
   if (!handle) throw new Error("请先在缓存管理中选择本地目录");
   const permission = await handle.queryPermission({ mode: "readwrite" });
-  if (permission !== "granted") throw new Error("缓存目录权限已失效，请在缓存管理中重新授权");
+  if (permission !== "granted") throw new Error("缓存目录权限已失效，请在提示中或缓存管理中重新授权");
   return handle;
 }
 
