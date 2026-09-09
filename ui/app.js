@@ -16,6 +16,7 @@ const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
 let draggedRow = null;
 let cacheToastTimer = null;
 let renderedPlayerKey = "";
+let favoriteMetadataRequest = null;
 
 const ui = {
   app: null,
@@ -41,7 +42,10 @@ const ui = {
   cacheInfo: null,
   cacheActivity: null,
   cacheToast: null,
-  detailOrigin: "creator"
+  detailOrigin: "creator",
+  favoriteMetadata: {},
+  favoriteMetadataLoading: false,
+  favoriteMetadataError: ""
 };
 
 function symbol(value, className = "") {
@@ -254,12 +258,14 @@ function isSectionFavorite(section) {
 }
 
 function favoriteSectionToSection(favorite) {
+  const metadata = ui.favoriteMetadata[favorite.key] ?? {};
   return {
     key: `${favorite.type}:${favorite.sectionId}`,
     id: favorite.sectionId,
     type: favorite.type,
-    title: favorite.title,
-    total: favorite.total,
+    title: metadata.title || favorite.title,
+    total: metadata.available ? metadata.total : null,
+    cover: metadata.cover || "",
     items: [],
     creator: { id: favorite.creatorId, name: favorite.creatorName },
     favoriteKey: favorite.key
@@ -423,12 +429,15 @@ function favoriteSectionCard(favorite) {
   const section = favoriteSectionToSection(favorite);
   const typeLabel = favorite.type === "season" ? "合集" : "系列";
   const loading = ui.loadingSectionKey === section.key;
-  return `<article class="section-card favorite-section-card"><div class="section-header"><span class="section-toggle favorite-section-icon" aria-hidden="true">${symbol("★")}</span><button class="section-title-button" type="button" data-action="open-favorite-section" data-key="${escapeHtml(favorite.key)}"><h2 class="section-title">${escapeHtml(favorite.title)}</h2><span class="section-meta">${typeLabel} · ${escapeHtml(favorite.creatorName)} · ${favorite.total} 个作品</span></button><div class="section-actions"><button class="icon-button" type="button" data-action="play-favorite-section" data-key="${escapeHtml(favorite.key)}" aria-label="${loading ? "正在读取全部作品" : "播放全部"}" ${loading ? "disabled" : ""}>${symbol(loading ? "◌" : "▶", loading ? "spinner" : "")}</button><button class="icon-button" type="button" data-action="remove-favorite-section" data-key="${escapeHtml(favorite.key)}" aria-label="取消收藏">${symbol("★")}</button><button class="ghost-button" type="button" data-action="open-favorite-section" data-key="${escapeHtml(favorite.key)}">进入详情</button></div></div></article>`;
+  const hasCover = Boolean(section.cover);
+  const total = Number.isFinite(section.total) ? `${section.total} 个作品` : "作品数待刷新";
+  return `<article class="section-card favorite-section-card ${hasCover ? "has-cover" : ""}"><div class="section-header">${hasCover ? `<button class="section-cover-button" type="button" data-action="open-favorite-section" data-key="${escapeHtml(favorite.key)}" aria-label="进入 ${escapeHtml(section.title)} 详情">${image(section.cover, `${section.title}封面`, "section-cover")}</button>` : `<span class="section-toggle favorite-section-icon" aria-hidden="true">${symbol("★")}</span>`}<button class="section-title-button" type="button" data-action="open-favorite-section" data-key="${escapeHtml(favorite.key)}"><h2 class="section-title">${escapeHtml(section.title)}</h2><span class="section-meta">${typeLabel} · ${escapeHtml(favorite.creatorName)} · ${total}</span></button><div class="section-actions"><button class="icon-button" type="button" data-action="play-favorite-section" data-key="${escapeHtml(favorite.key)}" aria-label="${loading ? "正在读取全部作品" : "播放全部"}" ${loading ? "disabled" : ""}>${symbol(loading ? "◌" : "▶", loading ? "spinner" : "")}</button><button class="icon-button" type="button" data-action="remove-favorite-section" data-key="${escapeHtml(favorite.key)}" aria-label="取消收藏">${symbol("★")}</button><button class="ghost-button" type="button" data-action="open-favorite-section" data-key="${escapeHtml(favorite.key)}">进入详情</button></div></div></article>`;
 }
 
 function favoriteSectionsPage() {
   const favorites = [...(ui.app?.favoriteSections ?? [])].sort((left, right) => Number(right.addedAt) - Number(left.addedAt));
-  return `<section>${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}<div class="page-heading"><div><h1>收藏的合集与系列</h1><p>跨 UP 主快速打开你保存的优质栏目</p></div></div>${favorites.length ? favorites.map(favoriteSectionCard).join("") : '<div class="download-placeholder"><h2>还没有收藏栏目</h2><p>在 UP 主主页或合集、系列详情页点击收藏，之后就能在这里直接打开。</p></div>'}</section>`;
+  const refreshState = ui.favoriteMetadataLoading ? '<div class="notice">正在在线刷新收藏栏目的封面和作品信息……</div>' : ui.favoriteMetadataError ? `<div class="notice">${escapeHtml(ui.favoriteMetadataError)}</div>` : "";
+  return `<section>${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}${refreshState}<div class="page-heading"><div><h1>收藏的合集与系列</h1><p>跨 UP 主快速打开你保存的优质栏目</p></div></div>${favorites.length ? favorites.map(favoriteSectionCard).join("") : '<div class="download-placeholder"><h2>还没有收藏栏目</h2><p>在 UP 主主页或合集、系列详情页点击收藏，之后就能在这里直接打开。</p></div>'}</section>`;
 }
 
 function cacheFormatText(task) {
@@ -697,6 +706,7 @@ async function openFavoriteSection(key) {
   const favorite = (ui.app?.favoriteSections ?? []).find(item => item.key === key);
   if (!favorite) throw new Error("收藏的栏目不存在");
   ui.detailOrigin = "favorites";
+  await refreshFavoriteSectionMetadata();
   await openSectionDetail(favoriteSectionToSection(favorite));
 }
 
@@ -865,6 +875,30 @@ async function favoriteSectionCommand(command, payload = {}) {
   return ui.app.favoriteSections;
 }
 
+async function refreshFavoriteSectionMetadata() {
+  if (favoriteMetadataRequest) return favoriteMetadataRequest;
+  ui.favoriteMetadataLoading = true;
+  ui.favoriteMetadataError = "";
+  favoriteMetadataRequest = (async () => {
+    try {
+      const result = await send(MESSAGE.favoriteSectionCommand, { command: "hydrateMetadata" });
+      const metadata = Object.fromEntries((result.items ?? []).map(item => [item.key, item]));
+      ui.favoriteMetadata = { ...ui.favoriteMetadata, ...metadata };
+      if (result.failedCreatorIds?.length) {
+        ui.favoriteMetadataError = `部分收藏栏目的在线资料暂时无法刷新（${result.failedCreatorIds.length} 位 UP 主）。`;
+      }
+      return result;
+    } catch (error) {
+      ui.favoriteMetadataError = `收藏栏目的在线资料暂时无法刷新：${toErrorMessage(error)}`;
+      return { items: [], failedCreatorIds: [] };
+    } finally {
+      ui.favoriteMetadataLoading = false;
+      favoriteMetadataRequest = null;
+    }
+  })();
+  return favoriteMetadataRequest;
+}
+
 async function toggleFavoriteSection(section) {
   if (!section || !["season", "series"].includes(section.type)) {
     throw new Error("只能收藏合集或系列");
@@ -873,10 +907,21 @@ async function toggleFavoriteSection(section) {
   const existing = (ui.app.favoriteSections ?? []).find(item => item.key === `${payload.creatorId}:${payload.type}:${payload.sectionId}`);
   if (existing) {
     await favoriteSectionCommand("remove", { key: existing.key });
+    delete ui.favoriteMetadata[existing.key];
     ui.notice = `已取消收藏“${section.title}”。`;
     return false;
   }
   await favoriteSectionCommand("add", { section: payload });
+  const favorite = ui.app.favoriteSections.find(item => item.key === `${payload.creatorId}:${payload.type}:${payload.sectionId}`);
+  if (favorite) {
+    ui.favoriteMetadata[favorite.key] = {
+      key: favorite.key,
+      title: section.title,
+      total: Math.max(0, Number(section.total) || 0),
+      cover: section.cover || "",
+      available: true
+    };
+  }
   ui.notice = `已收藏“${section.title}”，可在“收藏的合集与系列”中直接打开。`;
   return true;
 }
@@ -1149,7 +1194,17 @@ root.addEventListener("click", async event => {
       render();
     }
     else if (action === "show-playlists") { ui.view = "playlists"; ui.activePlaylistId = null; ui.error = ""; render(); }
-    else if (action === "show-favorite-sections") { ui.view = "favorites"; ui.activeSection = null; ui.detailData = null; ui.detailOrigin = "creator"; ui.error = ""; render(); }
+    else if (action === "show-favorite-sections") {
+      ui.view = "favorites";
+      ui.activeSection = null;
+      ui.detailData = null;
+      ui.detailOrigin = "creator";
+      ui.error = "";
+      render();
+      refreshFavoriteSectionMetadata().then(() => {
+        if (ui.view === "favorites") render();
+      });
+    }
     else if (action === "export-playlists") exportPlaylists();
     else if (action === "import-playlists") {
       const input = root.querySelector('[data-role="playlist-import-file"]');
@@ -1262,6 +1317,7 @@ root.addEventListener("click", async event => {
       const favorite = (ui.app.favoriteSections ?? []).find(item => item.key === button.dataset.key);
       if (!favorite) throw new Error("收藏的栏目不存在");
       await favoriteSectionCommand("remove", { key: favorite.key });
+      delete ui.favoriteMetadata[favorite.key];
       ui.notice = `已取消收藏“${favorite.title}”。`;
       render();
     }
