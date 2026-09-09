@@ -158,3 +158,13 @@
 - 解决方案：底部栏增加带数量的队列按钮和响应式抽屉，显示来源名称、当前位置、UP 主及时长，当前作品高亮并在打开时自动定位。新增指定索引播放、追加到队尾或下一首、上下移动、设为下一首、移除和清空命令；重排通过对象身份重新计算当前索引而不重载音频，移除当前项才播放后继作品，清空队列会停止并重置播放器。作品列表增加“+”入口追加到队列。
 - 验证方式：新增播放队列纯函数测试，覆盖当前作品随重排移动、删除前置项、删除当前项、清空最后一项以及队尾和下一首插入；执行全部测试、JavaScript 语法检查和 `git diff --check`。
 - 相关文件：`services/play-queue.js`、`shared/constants.js`、`offscreen/offscreen.js`、`ui/app.js`、`ui/app.css`、`tests/play-queue.test.mjs`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-015：缺少可持久化的自定义播放列表数据层
+
+- 日期：2026-09-09
+- 状态：已解决
+- 修改背景：用户需要跨 UP 主创建具有固定顺序的个人播放列表，浏览器重启后继续存在，并为后续导入导出提供稳定结构。
+- 原因：现有 `player.queue` 只表示当前播放会话，没有播放列表存储键、增删改查命令、作品去重或轻量数据模型。
+- 解决方案：新增播放列表存储和后台命令，支持创建、重命名、删除、添加作品、移除作品和重排。作品以 BV 号为稳定身份，同一列表内自动去重；只持久化 BV 号、标题、时长、UP 主 UID/名称和添加时间，不保存封面、AID、CID、栏目来源、缓存状态或 CDN 地址，并提供转换为运行时播放队列作品的函数。
+- 验证方式：新增播放列表纯函数测试，验证名称整理、最小快照字段、排除冗余字段、重复作品过滤、重排、移除、重命名、删除以及队列转换；执行全部测试、JavaScript 语法检查和 `git diff --check`。
+- 相关文件：`services/playlists.js`、`shared/constants.js`、`shared/storage.js`、`background/service-worker.js`、`tests/playlists.test.mjs`、`README.md`、`docs/ISSUES.md`

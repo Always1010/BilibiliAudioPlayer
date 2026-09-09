@@ -17,6 +17,15 @@ import {
 } from "../services/bilibili.js";
 import { toErrorMessage } from "../shared/utils.js";
 import { configureBilibiliAudioRequestRules } from "../services/cdn-request-rules.js";
+import {
+  addTracksToPlaylist,
+  createPlaylist,
+  deletePlaylist,
+  normalizePlaylists,
+  removeTrackFromPlaylist,
+  renamePlaylist,
+  reorderPlaylistTrack
+} from "../services/playlists.js";
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 let creatingOffscreen = null;
@@ -252,6 +261,24 @@ async function setSubscription({ creatorId, section, enabled, mode = "download",
   return subscriptions;
 }
 
+async function handlePlaylistCommand(command, payload = {}) {
+  if (command === "list") {
+    const stored = await chrome.storage.local.get(STORAGE_KEYS.playlists);
+    return normalizePlaylists(stored[STORAGE_KEYS.playlists]);
+  }
+  return updateStorageValue(STORAGE_KEYS.playlists, current => {
+    if (command === "create") return createPlaylist(current, payload.name);
+    if (command === "rename") return renamePlaylist(current, payload.playlistId, payload.name);
+    if (command === "delete") return deletePlaylist(current, payload.playlistId);
+    if (command === "addTracks") return addTracksToPlaylist(current, payload.playlistId, payload.tracks);
+    if (command === "removeTrack") return removeTrackFromPlaylist(current, payload.playlistId, payload.bvid);
+    if (command === "reorderTrack") {
+      return reorderPlaylistTrack(current, payload.playlistId, payload.fromIndex, payload.toIndex);
+    }
+    throw new Error(`未知播放列表命令：${command}`);
+  });
+}
+
 async function handleMessage(message) {
   switch (message.type) {
     case MESSAGE.getAppState:
@@ -307,6 +334,8 @@ async function handleMessage(message) {
       return { ok: true, data: await checkAllCreators() };
     case MESSAGE.setSubscription:
       return { ok: true, data: await setSubscription(message) };
+    case MESSAGE.playlistCommand:
+      return { ok: true, data: await handlePlaylistCommand(message.command, message.payload) };
     default:
       return { ok: false, error: `未知消息：${message.type}` };
   }
