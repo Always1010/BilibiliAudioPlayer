@@ -34,7 +34,7 @@ globalThis.fetch = async input => {
       return {
         code: 0,
         data: {
-          list: { vlist: [{ aid: page, bvid: `BV${page}`, title: `第 ${page} 页`, duration: 1 }] },
+          list: { vlist: [{ aid: page, bvid: `BV${page}`, title: `第 ${page} 页`, length: page === 2 ? "01:23" : "00:01" }] },
           page: { count: 120 }
         }
       };
@@ -54,6 +54,7 @@ try {
   assert.equal(first.pageSize, 50);
   assert.equal(second.page, 2);
   assert.equal(second.items[0].title, "第 2 页");
+  assert.equal(second.items[0].duration, 83);
   assert.equal(second.total, 120);
   console.log("全部作品分页：单页上限与后续页参数通过");
 } finally {

@@ -32,6 +32,35 @@ export function playlistItemToTrack(item) {
   };
 }
 
+export async function repairPlaylistDurations(playlists, resolveVideo, now = Date.now()) {
+  const normalized = normalizePlaylists(playlists);
+  const next = [];
+  for (const playlist of normalized) {
+    let changed = false;
+    const items = [];
+    for (const item of playlist.items) {
+      if (item.duration > 0) {
+        items.push(item);
+        continue;
+      }
+      try {
+        const video = await resolveVideo(item);
+        const duration = Math.max(0, Number(video?.duration) || 0);
+        if (duration > 0) {
+          items.push({ ...item, duration });
+          changed = true;
+        } else {
+          items.push(item);
+        }
+      } catch {
+        items.push(item);
+      }
+    }
+    next.push(changed ? { ...playlist, items, updatedAt: now } : { ...playlist, items });
+  }
+  return next;
+}
+
 export function normalizePlaylists(value) {
   if (!Array.isArray(value)) return [];
   const ids = new Set();

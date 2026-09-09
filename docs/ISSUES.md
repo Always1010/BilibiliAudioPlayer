@@ -374,3 +374,14 @@
 - 解决方案：新增可测试的播放器结构状态指纹，覆盖当前作品、队列及索引、队列标题、播放/加载状态、来源、模式和错误，但排除高频变化的播放时间与媒体时长。结构指纹不变时只原地更新进度条最大值、当前位置和时间文字；结构确实变化时才重建播放器，并继续恢复队列滚动位置。用户正在拖动进度条时不以异步状态覆盖其滑块值。
 - 验证方式：新增渲染策略测试，确认时间/时长变化不改变结构指纹，播放状态、来源、模式、队列索引和队列开关变化会触发结构更新；同时执行全部 Node 测试、JavaScript 语法检查、Manifest 0.7.5 JSON 检查与 `git diff --check`。
 - 相关文件：`services/player-render-policy.js`、`tests/player-render-policy.test.mjs`、`ui/app.js`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-036：全部作品时长显示为零
+
+- 日期：2026-09-09
+- 状态：已解决
+- 现象：进入 UP 主“全部作品”时，作品列表中的时长全部显示为 `00:00`；合集和系列部分作品不一定出现该问题。
+- 原因：全部作品使用 `/x/space/wbi/arc/search` 投稿接口，该接口的 `vlist` 条目以 `length` 字段返回 `MM:SS` 字符串；归一化逻辑只读取 `item.duration`，字段不存在时解析函数按零处理。详情页只是显示归一化后的数值，本身没有覆盖时长。
+- 解决方案：视频归一化按 `duration`、`length`、`video_duration` 顺序兼容读取，保留数字和带冒号字符串的统一解析。新增播放列表后台补全命令：扩展启动时发现历史播放列表存在零时长作品，就按 BV 号读取视频详情中的真实秒数并写回本地；单个作品补全失败时保留原值，不阻塞启动和播放。
+- 数据边界：新加载的全部作品会立即使用正确时长；已经保存为零的播放列表项目会在后台补全成功后更新，无法访问或已删除的作品不会被伪造时长。
+- 验证方式：新增投稿接口 `length` 字段 `01:23` 到 83 秒的测试，以及历史播放列表零时长补全测试；执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.7.6 JSON 检查和 `git diff --check`。
+- 相关文件：`services/bilibili.js`、`services/playlists.js`、`background/service-worker.js`、`ui/app.js`、`tests/bilibili-videos.test.mjs`、`tests/playlists.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
