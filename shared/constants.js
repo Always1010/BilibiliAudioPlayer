@@ -10,6 +10,7 @@ export const STORAGE_KEYS = Object.freeze({
 export const DEFAULT_PLAYER = Object.freeze({
   queue: [],
   queueIndex: -1,
+  queueContext: null,
   currentTrack: null,
   playing: false,
   currentTime: 0,
