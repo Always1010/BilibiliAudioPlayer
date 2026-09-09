@@ -8,6 +8,7 @@ import { parsePlaylistExport, serializePlaylistExport } from "../services/playli
 
 const root = document.getElementById("app");
 const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
+let draggedRow = null;
 
 const ui = {
   app: null,
@@ -280,7 +281,7 @@ function playlistDetail(playlist) {
     ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
     ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}
     <div class="page-heading playlist-heading"><div><h1>${escapeHtml(playlist.name)}</h1><p>${playlist.items.length} 个作品 · ${formatDuration(playlistTotalDuration(playlist))} · 更新于 ${formatDate(Math.floor(playlist.updatedAt / 1000))}</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="rename-playlist" data-id="${escapeHtml(playlist.id)}">重命名</button><button class="ghost-button danger-button" type="button" data-action="delete-playlist" data-id="${escapeHtml(playlist.id)}">删除</button><button class="primary-button" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}" ${tracks.length ? "" : "disabled"}>${symbol("▶")}播放全部</button></div></div>
-    <div class="track-table"><div class="track-table-head playlist-table-head"><span>#</span><span>作品</span><span>UP 主</span><span>时长</span><span></span></div>${tracks.length ? tracks.map((track, index) => `<div class="playlist-track-row"><span class="track-index">${String(index + 1).padStart(2, "0")}</span><button class="playlist-track-title" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}" data-index="${index}"><strong>${escapeHtml(track.title)}</strong><small>${escapeHtml(track.bvid)}</small></button><span class="playlist-creator">${escapeHtml(track.creator?.name || "未知UP主")}</span><span class="track-duration">${formatDuration(track.duration)}</span><div class="track-actions"><button class="icon-button" type="button" data-action="enqueue-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" aria-label="添加到当前队列">${symbol("+")}</button><button class="icon-button" type="button" data-action="move-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" data-to="${index - 1}" aria-label="上移" ${index === 0 ? "disabled" : ""}>${symbol("↑")}</button><button class="icon-button" type="button" data-action="move-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" data-to="${index + 1}" aria-label="下移" ${index === tracks.length - 1 ? "disabled" : ""}>${symbol("↓")}</button><button class="icon-button danger-button" type="button" data-action="remove-playlist-track" data-id="${escapeHtml(playlist.id)}" data-bvid="${escapeHtml(track.bvid)}" aria-label="从播放列表移除">${symbol("×")}</button></div></div>`).join("") : '<div class="queue-empty">这个播放列表还没有作品。</div>'}</div>
+    <div class="track-table"><div class="track-table-head playlist-table-head"><span>#</span><span>作品</span><span>UP 主</span><span>时长</span><span></span></div>${tracks.length ? tracks.map((track, index) => `<div class="playlist-track-row" draggable="true" data-drag-kind="playlist" data-playlist-id="${escapeHtml(playlist.id)}" data-index="${index}"><span class="track-index drag-handle" title="拖动调整顺序">${String(index + 1).padStart(2, "0")}</span><button class="playlist-track-title" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}" data-index="${index}"><strong>${escapeHtml(track.title)}</strong><small>${escapeHtml(track.bvid)}</small></button><span class="playlist-creator">${escapeHtml(track.creator?.name || "未知UP主")}</span><span class="track-duration">${formatDuration(track.duration)}</span><div class="track-actions"><button class="icon-button" type="button" data-action="enqueue-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" aria-label="添加到当前队列">${symbol("+")}</button><button class="icon-button" type="button" data-action="move-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" data-to="${index - 1}" aria-label="上移" ${index === 0 ? "disabled" : ""}>${symbol("↑")}</button><button class="icon-button" type="button" data-action="move-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" data-to="${index + 1}" aria-label="下移" ${index === tracks.length - 1 ? "disabled" : ""}>${symbol("↓")}</button><button class="icon-button danger-button" type="button" data-action="remove-playlist-track" data-id="${escapeHtml(playlist.id)}" data-bvid="${escapeHtml(track.bvid)}" aria-label="从播放列表移除">${symbol("×")}</button></div></div>`).join("") : '<div class="queue-empty">这个播放列表还没有作品。</div>'}</div>
   </section>`;
 }
 
@@ -367,7 +368,7 @@ function playQueueMarkup() {
   const title = player.queueContext?.title || "播放队列";
   return `<section class="play-queue-drawer" aria-label="播放队列">
     <div class="play-queue-header"><div><h2>${escapeHtml(title)}</h2><p>${queue.length ? `${currentIndex >= 0 ? currentIndex + 1 : 0} / ${queue.length}` : "队列为空"}</p></div><div><button class="plain-button" type="button" data-action="save-play-queue" ${queue.length ? "" : "disabled"}>保存为播放列表</button><button class="ghost-button" type="button" data-action="clear-play-queue" ${queue.length ? "" : "disabled"}>清空</button><button class="icon-button" type="button" data-action="toggle-play-queue" aria-label="关闭播放队列">${symbol("×")}</button></div></div>
-    <div class="play-queue-list">${queue.length ? queue.map((track, index) => `<div class="play-queue-row ${index === currentIndex ? "current" : ""}" data-queue-index="${index}"><button class="queue-track-button" type="button" data-action="play-queue-index" data-index="${index}"><span class="queue-position">${index === currentIndex ? "♫" : index + 1}</span><span><strong>${escapeHtml(track.title)}</strong><small>${escapeHtml(track.creator?.name || "未知UP主")} · ${formatDuration(track.duration)}</small></span></button><div class="queue-row-actions"><button class="icon-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${index - 1}" aria-label="上移" ${index === 0 ? "disabled" : ""}>${symbol("↑")}</button><button class="icon-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${index + 1}" aria-label="下移" ${index === queue.length - 1 ? "disabled" : ""}>${symbol("↓")}</button>${index !== currentIndex && index !== currentIndex + 1 ? `<button class="queue-next-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${Math.min(currentIndex + 1, queue.length - 1)}">下一首</button>` : ""}<button class="icon-button danger-button" type="button" data-action="remove-queue-item" data-index="${index}" aria-label="移出队列">${symbol("×")}</button></div></div>`).join("") : '<div class="queue-empty">从作品列表点击“+”即可添加到这里。</div>'}</div>
+    <div class="play-queue-list">${queue.length ? queue.map((track, index) => `<div class="play-queue-row ${index === currentIndex ? "current" : ""}" draggable="true" data-drag-kind="queue" data-index="${index}" data-queue-index="${index}"><button class="queue-track-button" type="button" data-action="play-queue-index" data-index="${index}"><span class="queue-position drag-handle" title="拖动调整顺序">${index === currentIndex ? "♫" : index + 1}</span><span><strong>${escapeHtml(track.title)}</strong><small>${escapeHtml(track.creator?.name || "未知UP主")} · ${formatDuration(track.duration)}</small></span></button><div class="queue-row-actions"><button class="icon-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${index - 1}" aria-label="上移" ${index === 0 ? "disabled" : ""}>${symbol("↑")}</button><button class="icon-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${index + 1}" aria-label="下移" ${index === queue.length - 1 ? "disabled" : ""}>${symbol("↓")}</button>${index !== currentIndex && index !== currentIndex + 1 ? `<button class="queue-next-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${Math.min(currentIndex + 1, queue.length - 1)}">下一首</button>` : ""}<button class="icon-button danger-button" type="button" data-action="remove-queue-item" data-index="${index}" aria-label="移出队列">${symbol("×")}</button></div></div>`).join("") : '<div class="queue-empty">从作品列表点击“+”即可添加到这里。</div>'}</div>
   </section>`;
 }
 
@@ -749,6 +750,62 @@ root.addEventListener("input", event => {
   if (event.target.matches('[data-action="seek"]')) {
     playerCommand("seek", { time: Number(event.target.value) });
   }
+});
+
+root.addEventListener("dragstart", event => {
+  const row = event.target.closest("[data-drag-kind]");
+  if (!row || !event.target.closest(".drag-handle")) {
+    event.preventDefault();
+    return;
+  }
+  draggedRow = {
+    kind: row.dataset.dragKind,
+    index: Number(row.dataset.index),
+    playlistId: row.dataset.playlistId || ""
+  };
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", `${draggedRow.kind}:${draggedRow.index}`);
+  requestAnimationFrame(() => row.classList.add("dragging"));
+});
+
+root.addEventListener("dragover", event => {
+  const row = event.target.closest("[data-drag-kind]");
+  if (!row || !draggedRow || row.dataset.dragKind !== draggedRow.kind
+    || (draggedRow.kind === "playlist" && row.dataset.playlistId !== draggedRow.playlistId)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  root.querySelectorAll(".drag-over").forEach(item => item.classList.remove("drag-over"));
+  row.classList.add("drag-over");
+});
+
+root.addEventListener("drop", async event => {
+  const row = event.target.closest("[data-drag-kind]");
+  if (!row || !draggedRow || row.dataset.dragKind !== draggedRow.kind) return;
+  event.preventDefault();
+  const fromIndex = draggedRow.index;
+  const toIndex = Number(row.dataset.index);
+  const kind = draggedRow.kind;
+  const playlistId = draggedRow.playlistId;
+  draggedRow = null;
+  if (fromIndex === toIndex) {
+    row.classList.remove("drag-over", "dragging");
+    return;
+  }
+  try {
+    if (kind === "queue") await playerCommand("reorderQueue", { fromIndex, toIndex });
+    else if (kind === "playlist" && row.dataset.playlistId === playlistId) {
+      await playlistCommand("reorderTrack", { playlistId, fromIndex, toIndex });
+      render();
+    }
+  } catch (error) {
+    ui.error = toErrorMessage(error);
+    render();
+  }
+});
+
+root.addEventListener("dragend", () => {
+  draggedRow = null;
+  root.querySelectorAll(".dragging, .drag-over").forEach(item => item.classList.remove("dragging", "drag-over"));
 });
 
 root.addEventListener("click", async event => {
