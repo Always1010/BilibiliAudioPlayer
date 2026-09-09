@@ -258,6 +258,13 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .source-badge.local { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
 .player-controls { display: flex; align-items: center; gap: 3px; }
 .speed-control { position: relative; }
+.volume-control { position: relative; }
+.volume-toggle { width: 34px; height: 34px; display: grid; place-items: center; padding: 0; color: var(--muted); border: 0; border-radius: 9px; background: transparent; }
+.volume-toggle:hover, .volume-toggle.active { color: var(--accent); background: var(--accent-soft); }
+.volume-panel { position: absolute; z-index: 42; right: 0; bottom: calc(100% + 10px); width: 236px; padding: 13px 14px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 32px color-mix(in srgb, var(--text) 16%, transparent); }
+.volume-range { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.volume-input { width: 100%; accent-color: var(--accent); }
+.volume-panel p { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .speed-toggle { min-width: 40px; height: 34px; padding: 0 7px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; border: 0; border-radius: 9px; background: transparent; }
 .speed-toggle:hover, .speed-toggle.active { color: var(--accent); background: var(--accent-soft); }
 .speed-panel { position: absolute; z-index: 42; right: 0; bottom: calc(100% + 10px); width: 236px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 32px color-mix(in srgb, var(--text) 16%, transparent); }
@@ -302,6 +309,7 @@ html[data-layout="sidepanel"] .player-bar { left: 0; grid-template-columns: minm
 html[data-layout="sidepanel"] .play-queue-drawer { left: 0; }
 html[data-layout="sidepanel"] .progress-area { display: none; }
 html[data-layout="sidepanel"] .speed-panel { right: -42px; }
+html[data-layout="sidepanel"] .volume-panel { right: -8px; }
 html[data-layout="sidepanel"] .brand-name,
 html[data-layout="sidepanel"] .login-state { display: none; }
 html[data-layout="sidepanel"] .topbar { gap: 7px; padding-inline: 9px; }
@@ -333,6 +341,7 @@ html[data-layout="sidepanel"] .queue-state { max-width: 105px; }
   .play-queue-drawer { left: 0; }
   .progress-area { display: none; }
   .speed-panel { right: -42px; }
+  .volume-panel { right: -8px; }
   .settings-grid { grid-template-columns: 1fr; }
   .playlist-grid { grid-template-columns: 1fr; }
 }

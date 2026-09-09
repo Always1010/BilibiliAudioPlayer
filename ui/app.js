@@ -9,6 +9,7 @@ import { cacheCoverageForTracks, cacheRecordBytes } from "../services/cache-reco
 import { loadAllSectionPages } from "../services/section-pagination.js";
 import { playbackModeLabel } from "../services/playback-mode.js";
 import { PLAYBACK_RATE_MAX, PLAYBACK_RATE_MIN, PLAYBACK_RATE_STEP, normalizePlaybackRate, playbackRateLabel } from "../services/playback-rate.js";
+import { PLAYBACK_VOLUME_MAX, PLAYBACK_VOLUME_MIN, normalizePlaybackVolume, playbackVolumePercent } from "../services/playback-volume.js";
 import { playerStructureKey } from "../services/player-render-policy.js";
 import { isFavoriteSection } from "../services/favorite-sections.js";
 import { normalizeTrackSortDirection, sortTracksByPublishedAt } from "../services/track-order.js";
@@ -30,6 +31,7 @@ const ui = {
   trackSearchKeyword: "",
   queueOpen: false,
   rateOpen: false,
+  volumeOpen: false,
   activePlaylistId: null,
   playlistPicker: null,
   playlistImportPreview: null,
@@ -78,6 +80,7 @@ function applyIconTooltips(scope) {
     "button.play-main[aria-label]",
     "button.queue-toggle[aria-label]",
     "button.speed-toggle[aria-label]",
+    "button.volume-toggle[aria-label]",
     "button.section-toggle[aria-label]",
     "button.section-cover-button[aria-label]"
   ].join(",");
@@ -520,11 +523,13 @@ function playerMarkup() {
   const track = player.currentTrack;
   const modeLabel = playbackModeLabel(player.mode);
   const playbackRate = normalizePlaybackRate(player.playbackRate);
+  const playbackVolume = normalizePlaybackVolume(player.volume);
+  const volumePercent = playbackVolumePercent(playbackVolume);
   const progressMax = Math.max(1, Number(player.duration) || Number(track?.duration) || 1);
   const sourceLabel = playbackSourceLabel(player.source, player.loading);
   return `<footer class="player-bar">
     <div class="now-playing">${image(track?.cover, track?.title ?? "尚未播放", "now-cover")}<div class="now-copy"><div class="now-title">${escapeHtml(track?.title ?? "选择一个作品开始播放")}</div><div class="now-meta"><span class="muted">${escapeHtml(track?.creator?.name ?? "哔哩音频")}</span>${sourceLabel ? `<span class="source-badge ${player.source?.kind === "cache" ? "local" : ""}">${escapeHtml(sourceLabel)}</span>` : ""}${player.error ? `<span class="player-error">${escapeHtml(player.error)}</span>` : ""}</div></div></div>
-    <div class="player-controls"><button class="icon-button" type="button" data-action="change-mode" aria-label="${modeLabel}">${symbol(player.mode === "shuffle" ? "⤨" : player.mode === "single" ? "①" : "↻")}</button><button class="icon-button" type="button" data-action="previous" aria-label="上一首">${symbol("◀|")}</button><button class="play-main" type="button" data-action="${player.playing ? "pause" : "resume"}" aria-label="${player.playing ? "暂停" : "播放"}">${symbol(player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="next" aria-label="下一首">${symbol("|▶")}</button><div class="speed-control"><button class="speed-toggle ${ui.rateOpen ? "active" : ""}" type="button" data-action="toggle-rate" aria-expanded="${ui.rateOpen}" aria-label="播放倍速，当前 ${playbackRateLabel(playbackRate)}">${playbackRateLabel(playbackRate)}</button>${ui.rateOpen ? `<section class="speed-panel" aria-label="播放倍速"><div class="speed-range"><span aria-hidden="true">${PLAYBACK_RATE_MIN}×</span><input class="speed-input" type="range" min="${PLAYBACK_RATE_MIN}" max="${PLAYBACK_RATE_MAX}" step="${PLAYBACK_RATE_STEP}" value="${playbackRate}" data-action="set-rate-slider" aria-label="精细调节播放倍速，当前 ${playbackRateLabel(playbackRate)}"><span aria-hidden="true">${PLAYBACK_RATE_MAX}×</span></div></section>` : ""}</div><button class="queue-toggle ${ui.queueOpen ? "active" : ""}" type="button" data-action="toggle-play-queue" aria-expanded="${ui.queueOpen}" aria-label="查看播放队列">${symbol("☷")}<span>${player.queue?.length ?? 0}</span></button></div>
+    <div class="player-controls"><button class="icon-button" type="button" data-action="change-mode" aria-label="${modeLabel}">${symbol(player.mode === "shuffle" ? "⤨" : player.mode === "single" ? "①" : "↻")}</button><button class="icon-button" type="button" data-action="previous" aria-label="上一首">${symbol("◀|")}</button><button class="play-main" type="button" data-action="${player.playing ? "pause" : "resume"}" aria-label="${player.playing ? "暂停" : "播放"}">${symbol(player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="next" aria-label="下一首">${symbol("|▶")}</button><div class="volume-control"><button class="volume-toggle ${ui.volumeOpen ? "active" : ""}" type="button" data-action="toggle-volume" aria-expanded="${ui.volumeOpen}" aria-label="音量，当前 ${volumePercent}%${playbackVolume > 1 ? "（增强）" : ""}">${symbol(playbackVolume === 0 ? "🔇" : playbackVolume > 1 ? "🔊+" : "🔊")}</button>${ui.volumeOpen ? `<section class="volume-panel" aria-label="音量调节"><div class="volume-range"><span aria-hidden="true">0</span><input class="volume-input" type="range" min="${PLAYBACK_VOLUME_MIN}" max="${PLAYBACK_VOLUME_MAX}" step="0.01" value="${playbackVolume}" data-action="set-volume-slider" aria-label="音量，当前 ${volumePercent}%${playbackVolume > 1 ? "，增强" : ""}"><span aria-hidden="true">200%</span></div><p>超过 100% 为增强，部分音源可能失真。</p></section>` : ""}</div><div class="speed-control"><button class="speed-toggle ${ui.rateOpen ? "active" : ""}" type="button" data-action="toggle-rate" aria-expanded="${ui.rateOpen}" aria-label="播放倍速，当前 ${playbackRateLabel(playbackRate)}">${playbackRateLabel(playbackRate)}</button>${ui.rateOpen ? `<section class="speed-panel" aria-label="播放倍速"><div class="speed-range"><span aria-hidden="true">${PLAYBACK_RATE_MIN}×</span><input class="speed-input" type="range" min="${PLAYBACK_RATE_MIN}" max="${PLAYBACK_RATE_MAX}" step="${PLAYBACK_RATE_STEP}" value="${playbackRate}" data-action="set-rate-slider" aria-label="精细调节播放倍速，当前 ${playbackRateLabel(playbackRate)}"><span aria-hidden="true">${PLAYBACK_RATE_MAX}×</span></div></section>` : ""}</div><button class="queue-toggle ${ui.queueOpen ? "active" : ""}" type="button" data-action="toggle-play-queue" aria-expanded="${ui.queueOpen}" aria-label="查看播放队列">${symbol("☷")}<span>${player.queue?.length ?? 0}</span></button></div>
     <div class="progress-area"><input class="progress-input" type="range" min="0" max="${progressMax}" value="${Math.min(Number(player.currentTime) || 0, progressMax)}" step="1" data-action="seek" aria-label="播放进度"><span class="time-label">${formatDuration(player.currentTime)} / ${formatDuration(progressMax)}</span></div>
   </footer>`;
 }
@@ -1111,8 +1116,9 @@ root.addEventListener("focusin", event => {
 document.addEventListener("keydown", event => {
   const target = event.target;
   const editable = Boolean(target?.matches?.("input, textarea, select, [contenteditable=\"true\"]") || target?.isContentEditable);
-  if (event.key === "Escape" && ui.rateOpen) {
+  if (event.key === "Escape" && (ui.rateOpen || ui.volumeOpen)) {
     ui.rateOpen = false;
+    ui.volumeOpen = false;
     renderPlayer({ force: true });
     return;
   }
@@ -1184,6 +1190,11 @@ root.addEventListener("input", event => {
     const rate = normalizePlaybackRate(event.target.value);
     event.target.setAttribute("aria-label", `精细调节播放倍速，当前 ${playbackRateLabel(rate)}`);
   }
+  if (event.target.matches('[data-action="set-volume-slider"]')) {
+    const volume = normalizePlaybackVolume(event.target.value);
+    event.target.setAttribute("aria-label", `音量，当前 ${playbackVolumePercent(volume)}%${volume > 1 ? "，增强" : ""}`);
+    playerCommand("volume", { volume });
+  }
 });
 
 root.addEventListener("change", event => {
@@ -1250,8 +1261,9 @@ root.addEventListener("dragend", () => {
 });
 
 root.addEventListener("click", async event => {
-  if (ui.rateOpen && !event.target.closest(".speed-control")) {
+  if ((ui.rateOpen || ui.volumeOpen) && !event.target.closest(".speed-control, .volume-control")) {
     ui.rateOpen = false;
+    ui.volumeOpen = false;
     renderPlayer({ force: true });
   }
   if (ui.searchOpen && !event.target.closest(".search-form")) {
@@ -1325,12 +1337,19 @@ root.addEventListener("click", async event => {
     else if (action === "open-full") await send(MESSAGE.openPlayer);
     else if (action === "toggle-play-queue") {
       ui.rateOpen = false;
+      ui.volumeOpen = false;
       ui.queueOpen = !ui.queueOpen;
       renderPlayer();
       if (ui.queueOpen) requestAnimationFrame(() => root.querySelector(".play-queue-row.current")?.scrollIntoView({ block: "nearest" }));
     }
     else if (action === "toggle-rate") {
+      ui.volumeOpen = false;
       ui.rateOpen = !ui.rateOpen;
+      renderPlayer({ force: true });
+    }
+    else if (action === "toggle-volume") {
+      ui.rateOpen = false;
+      ui.volumeOpen = !ui.volumeOpen;
       renderPlayer({ force: true });
     }
     else if (action === "play-queue-index") await playerCommand("playIndex", { index: Number(button.dataset.index) });
