@@ -137,6 +137,8 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .more-button:hover { background: var(--surface-soft); }
 
 .search-results { position: absolute; z-index: 30; top: 48px; left: 0; right: 0; max-height: 430px; overflow: auto; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 14px 40px color-mix(in srgb, var(--text) 15%, transparent); }
+.search-results-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 5px 6px 9px; color: var(--muted); font-size: 12px; }
+.search-results-head .icon-button { width: 28px; height: 28px; }
 .search-result { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px; border-radius: 8px; }
 .search-result:hover { background: var(--surface-soft); }
 .search-result img { width: 40px; height: 40px; border-radius: 50%; }

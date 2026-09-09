@@ -34,6 +34,7 @@ const ui = {
   expanded: new Set(["all"]),
   searchResults: [],
   searchKeyword: "",
+  searchOpen: false,
   searching: false,
   loading: false,
   loadingSectionKey: null,
@@ -157,7 +158,7 @@ function topbar() {
   return `<header class="topbar">
     <div class="brand"><span class="brand-mark"><img src="icons/icon32.png" alt=""></span><span class="brand-name">哔哩音频</span></div>
     <form class="search-form" data-form="search">
-      <input class="search-input" name="keyword" autocomplete="off" placeholder="搜索 UP 主名称或 UID" value="${escapeHtml(ui.searchKeyword)}" aria-label="搜索 UP 主">
+      <input class="search-input" name="keyword" autocomplete="off" placeholder="搜索 UP 主名称或 UID" value="${escapeHtml(ui.searchKeyword)}" aria-label="搜索 UP 主" data-role="creator-search-input">
       <button class="search-submit" type="submit" aria-label="搜索">${ui.searching ? symbol("◌", "spinner") : symbol("⌕")}</button>
       ${searchResults()}
     </form>
@@ -169,11 +170,12 @@ function topbar() {
 }
 
 function searchResults() {
-  if (!ui.searchResults.length && !ui.searching && !ui.searchKeyword) return "";
-  if (ui.searching) return '<div class="search-results"><div class="search-result muted">正在搜索……</div></div>';
-  if (!ui.searchResults.length) return '<div class="search-results"><div class="search-result muted">没有找到匹配的 UP 主</div></div>';
+  if (!ui.searchOpen || (!ui.searchResults.length && !ui.searching && !ui.searchKeyword)) return "";
+  const header = `<div class="search-results-head"><span>搜索结果</span><button class="icon-button" type="button" data-action="close-search" aria-label="关闭搜索结果">${symbol("×")}</button></div>`;
+  if (ui.searching) return `<div class="search-results">${header}<div class="search-result muted">正在搜索……</div></div>`;
+  if (!ui.searchResults.length) return `<div class="search-results">${header}<div class="search-result muted">没有找到匹配的 UP 主</div></div>`;
   const followed = new Set((ui.app?.creators ?? []).map(item => String(item.id)));
-  return `<div class="search-results">${ui.searchResults.map(creator => `
+  return `<div class="search-results">${header}${ui.searchResults.map(creator => `
     <div class="search-result">
       ${image(creator.avatar, creator.name, "creator-avatar")}
       <div><div class="search-result-title">${escapeHtml(creator.name)}</div><div class="search-result-meta">UID ${escapeHtml(creator.id)}${creator.fans ? ` · ${creator.fans.toLocaleString("zh-CN")} 粉丝` : ""}</div></div>
@@ -680,7 +682,14 @@ async function loadActiveCreator(force = false) {
 
 async function search(keyword) {
   ui.searchKeyword = keyword.trim();
-  if (!ui.searchKeyword) return;
+  if (!ui.searchKeyword) {
+    ui.searchResults = [];
+    ui.searchOpen = false;
+    ui.searching = false;
+    render();
+    return;
+  }
+  ui.searchOpen = true;
   ui.searching = true;
   ui.searchResults = [];
   ui.error = "";
@@ -1077,6 +1086,33 @@ root.addEventListener("submit", event => {
   }
 });
 
+root.addEventListener("focusin", event => {
+  if (!event.target.matches('[data-role="creator-search-input"]') || ui.searchOpen
+    || (!ui.searchKeyword && !ui.searchResults.length && !ui.searching)) return;
+  ui.searchOpen = true;
+  render();
+  requestAnimationFrame(() => root.querySelector('[data-role="creator-search-input"]')?.focus());
+});
+
+root.addEventListener("keydown", event => {
+  const editable = event.target.matches("input, textarea, select, [contenteditable=\"true\"]");
+  if (event.key === "Escape" && ui.searchOpen) {
+    ui.searchOpen = false;
+    render();
+    return;
+  }
+  if (event.key === "/" && !editable && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    ui.searchOpen = true;
+    const focusSearch = () => root.querySelector('[data-role="creator-search-input"]')?.focus();
+    if (root.querySelector('[data-role="creator-search-input"]')) focusSearch();
+    else {
+      render();
+      requestAnimationFrame(focusSearch);
+    }
+  }
+});
+
 root.addEventListener("change", async event => {
   if (event.target.matches('[data-role="playlist-import-file"]')) {
     try {
@@ -1182,11 +1218,16 @@ root.addEventListener("dragend", () => {
 });
 
 root.addEventListener("click", async event => {
+  if (ui.searchOpen && !event.target.closest(".search-form")) {
+    ui.searchOpen = false;
+    render();
+  }
   const button = event.target.closest("[data-action]");
   if (!button || button.disabled) return;
   const action = button.dataset.action;
   try {
-    if (action === "show-creator") {
+    if (action === "close-search") { ui.searchOpen = false; render(); }
+    else if (action === "show-creator") {
       ui.view = ui.detailOrigin === "favorites" ? "favorites" : "creator";
       ui.activeSection = null;
       ui.detailData = null;
@@ -1359,6 +1400,7 @@ root.addEventListener("click", async event => {
       ui.app.settings.activeCreatorId = result.creator.id;
       ui.searchResults = [];
       ui.searchKeyword = "";
+      ui.searchOpen = false;
       ui.view = "creator";
       await loadActiveCreator(true);
     }
