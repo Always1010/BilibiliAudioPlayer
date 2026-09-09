@@ -6,6 +6,7 @@ import { playbackSourceLabel } from "../services/playback-source.js";
 import { playlistItemToTrack } from "../services/playlists.js";
 import { parsePlaylistExport, serializePlaylistExport } from "../services/playlist-transfer.js";
 import { cacheCoverageForTracks, cacheRecordBytes } from "../services/cache-records.js";
+import { buildCacheLibrary } from "../services/cache-library.js";
 import { loadAllSectionPages } from "../services/section-pagination.js";
 import { playbackModeLabel } from "../services/playback-mode.js";
 import { PLAYBACK_RATE_MAX, PLAYBACK_RATE_MIN, PLAYBACK_RATE_STEP, normalizePlaybackRate, playbackRateLabel } from "../services/playback-rate.js";
@@ -48,6 +49,8 @@ const ui = {
   cacheInfo: null,
   cacheActivity: null,
   cacheToast: null,
+  cacheExpandedGroups: new Set(),
+  cacheExpansionInitialized: false,
   detailOrigin: "creator",
   favoriteMetadata: {},
   favoriteMetadataLoading: false,
@@ -380,6 +383,11 @@ function downloadsPage() {
   const recent = info?.recent ?? [];
   const activeCount = pending.length + (current ? 1 : 0);
   const progress = Math.max(0, Math.min(100, Math.round(Number(activity?.progress ?? 0) * 100)));
+  const library = buildCacheLibrary(records);
+  if (!ui.cacheExpansionInitialized && library.length) {
+    library.forEach(node => ui.cacheExpandedGroups.add(node.id));
+    ui.cacheExpansionInitialized = true;
+  }
   return `<section><div data-cache-section="heading"><div class="page-heading"><div><h1>缓存管理</h1><p>本地目录、下载队列和离线文件</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="refresh-cache">${symbol("↻")}刷新</button><button class="plain-button" type="button" data-action="scan-cache-archives">${symbol("⌕")}扫描归档</button><button class="primary-button" type="button" data-action="choose-folder">${symbol("▣")}${directory?.configured ? "重新授权目录" : "选择缓存目录"}</button></div></div>
     ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
     ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}</div>
@@ -393,9 +401,18 @@ function downloadsPage() {
       ${pending.length ? `<div class="queue-list"><div class="queue-list-title">等待中</div>${pending.map((task, index) => cacheTaskRow(task, `${index + 1}`, "等待中")).join("")}</div>` : ""}
     </div>
     <div data-cache-section="history">${recent.length ? `<div class="cache-history-panel"><div class="cache-panel-heading"><div><h2>最近任务</h2><p>保留本次后台会话最近 ${recent.length} 条结果</p></div></div><div class="queue-list">${recent.slice(0, 20).map(task => cacheTaskRow(task, cacheHistorySymbol(task.status), cacheHistoryText(task))).join("")}</div></div>` : ""}</div>
-    <div data-cache-section="files"><h2 class="cache-files-heading">已缓存文件</h2>
-    ${locations.length ? `<div class="track-table" style="margin-top:12px">${locations.slice().reverse().slice(0, 200).map((record, index) => `<div class="track-row"><span class="track-index">${String(index + 1).padStart(2, "0")}</span><div><div class="track-title">${escapeHtml(record.title)}</div><div class="track-subtitle">${escapeHtml(record.scope?.title || record.creator?.name || "未分类归档")}${record.format === "mp3" ? ` · MP3 ${record.bitrate} kbps` : " · 原始格式"}</div></div><span class="track-duration">${formatBytes(record.size)}</span><div class="track-actions"><span class="cached">✓</span></div></div>`).join("")}</div>` : '<div class="download-placeholder" style="margin-top:12px"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}</div>
+    <div data-cache-section="files"><div class="cache-files-heading"><div><h2>已缓存文件</h2><p>按本地归档目录展示，共 ${locations.length} 个实体副本</p></div></div>
+    ${library.length ? `<div class="cache-library">${library.map(node => cacheLibraryNodeMarkup(node)).join("")}</div>` : '<div class="download-placeholder"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}</div>
   </section>`;
+}
+
+function cacheLibraryNodeMarkup(node, depth = 0) {
+  if (node.kind === "file") {
+    const format = node.format === "mp3" ? `MP3 ${node.bitrate} kbps` : "原始格式";
+    return `<div class="cache-file-row" style="--cache-depth:${depth}"><span class="cache-tree-guide"></span><div class="cache-file-copy"><div class="track-title">${escapeHtml(node.title)}</div><div class="track-subtitle">${escapeHtml(node.bvid || node.trackId)} · ${format}</div></div><span class="track-duration">${formatBytes(node.size)}</span><span class="cached" aria-label="已缓存">✓</span></div>`;
+  }
+  const expanded = ui.cacheExpandedGroups.has(node.id);
+  return `<div class="cache-group" data-cache-group="${escapeHtml(node.id)}"><button class="cache-group-row" type="button" data-action="toggle-cache-group" data-key="${escapeHtml(node.id)}" aria-expanded="${expanded}"><span class="cache-group-toggle">${symbol(expanded ? "⌄" : "›")}</span><span class="cache-group-copy"><strong>${escapeHtml(node.label)}</strong>${node.subtitle ? `<small>${escapeHtml(node.subtitle)}</small>` : ""}</span><span class="cache-group-meta">${node.count} 个 · ${formatBytes(node.size)}</span></button>${expanded ? `<div class="cache-group-children">${node.children.map(child => cacheLibraryNodeMarkup(child, depth + 1)).join("")}</div>` : ""}</div>`;
 }
 
 function activePlaylist() {
@@ -1374,6 +1391,12 @@ root.addEventListener("click", async event => {
       render();
     }
     else if (action === "show-downloads") { ui.view = "downloads"; render(); }
+    else if (action === "toggle-cache-group") {
+      ui.cacheExpandedGroups.has(button.dataset.key)
+        ? ui.cacheExpandedGroups.delete(button.dataset.key)
+        : ui.cacheExpandedGroups.add(button.dataset.key);
+      replaceCacheSections();
+    }
     else if (action === "show-settings") { ui.view = "settings"; render(); }
     else if (action === "open-cache-queue") { ui.view = "downloads"; ui.cacheToast = null; render(); }
     else if (action === "dismiss-cache-toast") { ui.cacheToast = null; renderCacheToast(); }

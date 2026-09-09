@@ -226,7 +226,7 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .download-placeholder { padding: 30px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 12px; background: var(--surface); }
 .cache-queue-panel, .cache-history-panel { margin-top: 14px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .cache-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 15px; border-bottom: 1px solid var(--line); }
-.cache-panel-heading h2, .cache-files-heading { margin: 0; font-size: 15px; }
+.cache-panel-heading h2, .cache-files-heading h2 { margin: 0; font-size: 15px; }
 .cache-panel-heading p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
 .queue-count { min-width: 30px; padding: 5px 9px; color: var(--accent); font-weight: 600; text-align: center; border-radius: 999px; background: var(--accent-soft); }
 .queue-current { padding: 14px 15px; background: color-mix(in srgb, var(--accent) 5%, transparent); }
@@ -246,7 +246,23 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .queue-marker { color: var(--muted); text-align: center; }
 .queue-copy { min-width: 0; }
 .queue-state { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
-.cache-files-heading { margin-top: 20px; }
+.cache-files-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; }
+.cache-files-heading p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.cache-library { margin-top: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.cache-group + .cache-group { border-top: 1px solid var(--line); }
+.cache-group-row { width: 100%; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 50px; padding: 7px 12px; text-align: left; border: 0; background: transparent; }
+.cache-group-row:hover { background: var(--surface-soft); }
+.cache-group-toggle { display: grid; place-items: center; color: var(--muted); }
+.cache-group-copy { min-width: 0; }
+.cache-group-copy strong, .cache-group-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cache-group-copy small { margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.cache-group-meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.cache-group-children { margin-left: 20px; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.cache-group-children > .cache-group + .cache-group { border-top: 1px solid var(--line); }
+.cache-file-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 76px 28px; align-items: center; gap: 8px; min-height: 50px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+.cache-file-row:last-child { border-bottom: 0; }
+.cache-tree-guide { width: 10px; height: 1px; background: var(--line); }
+.cache-file-copy { min-width: 0; }
 
 .player-bar { position: fixed; z-index: 40; left: 220px; right: 0; bottom: 0; display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr); align-items: center; gap: 14px; min-height: 76px; padding: 10px 18px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 95%, transparent); backdrop-filter: blur(14px); }
 .now-playing { display: flex; align-items: center; min-width: 0; gap: 10px; }
@@ -330,6 +346,7 @@ html[data-layout="sidepanel"] .playlist-track-row { grid-template-columns: 28px 
 html[data-layout="sidepanel"] .playlist-creator,
 html[data-layout="sidepanel"] .playlist-track-row > .track-duration { display: none; }
 html[data-layout="sidepanel"] .queue-state { max-width: 105px; }
+html[data-layout="sidepanel"] .cache-group-children { margin-left: 10px; }
 
 @media (max-width: 760px) {
   .workspace { grid-template-columns: 1fr; }
@@ -384,6 +401,11 @@ html[data-layout="sidepanel"] .queue-state { max-width: 105px; }
   .playlist-track-row .playlist-creator,
   .playlist-track-row > .track-duration { display: none; }
   .playlist-track-row .track-actions { grid-column: 2; justify-content: flex-start; }
+  .cache-group-row { grid-template-columns: 24px minmax(0, 1fr); }
+  .cache-group-meta { grid-column: 2; }
+  .cache-group-children { margin-left: 8px; }
+  .cache-file-row { grid-template-columns: 14px minmax(0, 1fr) 24px; }
+  .cache-file-row > .track-duration { display: none; }
   .play-queue-row { grid-template-columns: minmax(0, 1fr); }
   .queue-row-actions { padding-left: 42px; }
 }
