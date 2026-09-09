@@ -223,7 +223,7 @@ function detailPage() {
       <div class="detail-copy"><h1>${escapeHtml(section.title)}</h1><div class="muted">${typeLabel} · ${total} 个作品</div><div class="detail-actions"><button class="primary-button" type="button" data-action="play-detail">${symbol("▶")}播放全部</button><button class="plain-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}">${symbol("⇩")}缓存全部</button><label class="switch"><input type="checkbox" data-action="follow-section" ${following ? "checked" : ""}>自动追更并缓存</label></div></div>
     </div>
     <form class="track-search-form" data-form="track-search"><input class="track-search-input" name="keyword" autocomplete="off" placeholder="搜索当前${typeLabel}中的作品" value="${escapeHtml(ui.trackSearchKeyword)}" aria-label="搜索当前${typeLabel}中的作品"><button class="plain-button" type="submit">${symbol("⌕")}搜索</button>${searchingTracks ? '<button class="ghost-button" type="button" data-action="clear-track-search">清除</button>' : ""}</form>
-    ${searchingTracks && !ui.loading ? `<div class="track-search-summary">“${escapeHtml(ui.trackSearchKeyword)}”找到 ${visibleItems.length} 个作品 · 已检索 ${items.length} / ${total}</div>` : ""}
+    ${searchingTracks && !ui.loading ? `<div class="track-search-result-bar"><div class="track-search-summary">“${escapeHtml(ui.trackSearchKeyword)}”找到 ${visibleItems.length} 个作品 · 已检索 ${items.length} / ${total}</div>${visibleItems.length ? `<div class="track-search-actions"><button class="plain-button" type="button" data-action="play-search-results">${symbol("▶")}播放搜索结果</button><button class="plain-button" type="button" data-action="save-search-results">${symbol("☆")}保存到我的播放列表</button></div>` : ""}</div>` : ""}
     <div class="track-table"><div class="track-table-head"><span>#</span><span>作品</span><span>发布时间</span><span>时长</span><span></span></div>${ui.loading ? '<div class="notice">正在读取并搜索全部作品……</div>' : visibleItems.length ? trackRows(visibleItems, { ...section, items: visibleItems }) : `<div class="notice">${searchingTracks ? "没有找到匹配的作品，请尝试其他关键词。" : "该栏目暂无作品。"}</div>`}${!ui.loading && items.length < total ? `<button class="more-button" type="button" data-action="load-more">继续加载（已显示 ${items.length} / ${total}）</button>` : ""}</div>
   </section>`;
 }
@@ -393,6 +393,19 @@ function queueContextForSection(section) {
   return {
     kind: section.type,
     title: `${activeCreator()?.name || "UP 主"} · ${section.title}`
+  };
+}
+
+function currentSearchResults() {
+  if (!ui.activeSection || !ui.trackSearchKeyword) return [];
+  const items = ui.detailData?.items ?? ui.activeSection.items ?? [];
+  return filterTracksByKeyword(items, ui.trackSearchKeyword);
+}
+
+function searchQueueContext() {
+  return {
+    kind: "search",
+    title: `搜索结果 · ${activeCreator()?.name || "UP 主"} / ${ui.activeSection?.title || "栏目"} / ${ui.trackSearchKeyword}`
   };
 }
 
@@ -763,6 +776,15 @@ root.addEventListener("click", async event => {
     else if (action === "clear-track-search") {
       ui.trackSearchKeyword = "";
       render();
+    }
+    else if (action === "play-search-results") {
+      const queue = queueForSection(ui.activeSection, currentSearchResults());
+      if (!queue.length) throw new Error("当前没有可播放的搜索结果");
+      await playerCommand("playQueue", { queue, index: 0, queueContext: searchQueueContext() });
+    }
+    else if (action === "save-search-results") {
+      const queue = queueForSection(ui.activeSection, currentSearchResults());
+      openPlaylistPicker(queue, `搜索“${ui.trackSearchKeyword}”的结果`);
     }
     else if (action === "select-creator") {
       await send(MESSAGE.selectCreator, { id: button.dataset.id });
