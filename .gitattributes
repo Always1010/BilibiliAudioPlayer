@@ -1,0 +1,2 @@
+# 第三方源码保持上游文件原样，不应用项目空白字符检查。
+vendor/lamejs/** -whitespace

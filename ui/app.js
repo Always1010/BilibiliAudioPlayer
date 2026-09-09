@@ -223,7 +223,7 @@ function downloadsPage() {
       <div class="settings-panel"><h2>缓存概览</h2><div class="setting-row"><span>已缓存作品</span><strong>${records.length}</strong></div><div class="setting-row"><span>占用空间</span><strong>${formatBytes(totalBytes)}</strong></div></div>
     </div>
     ${activity && activity.status !== "idle" ? `<div class="notice">${activity.track ? `正在处理：${escapeHtml(activity.track.title)} · ` : ""}${cacheStatusText(activity)}</div>` : ""}
-    ${records.length ? `<div class="track-table" style="margin-top:12px">${records.slice().reverse().slice(0, 100).map((record, index) => `<div class="track-row"><span class="track-index">${String(index + 1).padStart(2, "0")}</span><div><div class="track-title">${escapeHtml(record.title)}</div><div class="track-subtitle">${escapeHtml(record.creator?.name || "")}</div></div><span class="track-duration">${formatBytes(record.size)}</span><div class="track-actions"><span class="cached">✓</span></div></div>`).join("")}</div>` : '<div class="download-placeholder" style="margin-top:12px"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}
+    ${records.length ? `<div class="track-table" style="margin-top:12px">${records.slice().reverse().slice(0, 100).map((record, index) => `<div class="track-row"><span class="track-index">${String(index + 1).padStart(2, "0")}</span><div><div class="track-title">${escapeHtml(record.title)}</div><div class="track-subtitle">${escapeHtml(record.creator?.name || "")}${record.format === "mp3" ? ` · MP3 ${record.bitrate} kbps` : " · 原始格式"}</div></div><span class="track-duration">${formatBytes(record.size)}</span><div class="track-actions"><span class="cached">✓</span></div></div>`).join("")}</div>` : '<div class="download-placeholder" style="margin-top:12px"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}
   </section>`;
 }
 
@@ -239,6 +239,8 @@ function cacheStatusText(activity) {
   if (activity.status === "failed") return `失败：${escapeHtml(activity.message || "未知错误")}`;
   if (activity.status === "completed") return "缓存完成";
   if (activity.status === "skipped") return "已经缓存";
+  if (activity.status === "decoding") return "正在解码原始音频";
+  if (activity.status === "encoding") return `正在转换 MP3 · ${Math.round((activity.progress || 0) * 100)}%`;
   if (activity.status === "downloading") return activity.total
     ? `${Math.round((activity.progress || 0) * 100)}%（${formatBytes(activity.received)} / ${formatBytes(activity.total)}）`
     : `已下载 ${formatBytes(activity.received)}`;
@@ -248,7 +250,7 @@ function cacheStatusText(activity) {
 function settingsPage() {
   const settings = ui.app.settings;
   return `<section><div class="page-heading"><div><h1>设置</h1><p>纯浏览器扩展，不连接外部服务</p></div></div><div class="settings-grid">
-    <div class="settings-panel"><h2>下载与音频</h2><label class="setting-row"><span>默认缓存格式</span><select name="defaultFormat" data-setting><option value="original" selected>保留原始音频</option><option value="mp3" disabled>转换为 MP3（后续接入）</option></select></label><label class="setting-row"><span>MP3 音质</span><select name="mp3Bitrate" data-setting disabled><option value="128" ${settings.mp3Bitrate === 128 ? "selected" : ""}>128 kbps</option><option value="192" ${settings.mp3Bitrate === 192 ? "selected" : ""}>192 kbps</option><option value="320" ${settings.mp3Bitrate === 320 ? "selected" : ""}>320 kbps</option></select></label></div>
+    <div class="settings-panel"><h2>下载与音频</h2><label class="setting-row"><span>默认缓存格式</span><select name="defaultFormat" data-setting><option value="original" ${settings.defaultFormat === "original" ? "selected" : ""}>保留原始音频</option><option value="mp3" ${settings.defaultFormat === "mp3" ? "selected" : ""}>转换为 MP3</option></select></label><label class="setting-row"><span>MP3 音质</span><select name="mp3Bitrate" data-setting ${settings.defaultFormat === "mp3" ? "" : "disabled"}><option value="128" ${settings.mp3Bitrate === 128 ? "selected" : ""}>128 kbps</option><option value="192" ${settings.mp3Bitrate === 192 ? "selected" : ""}>192 kbps</option><option value="320" ${settings.mp3Bitrate === 320 ? "selected" : ""}>320 kbps</option></select></label></div>
     <div class="settings-panel"><h2>追更与播放</h2><label class="setting-row"><span>浏览器启动后检查更新</span><span class="switch"><input type="checkbox" name="checkUpdatesOnStartup" data-setting ${settings.checkUpdatesOnStartup ? "checked" : ""}>开启</span></label><label class="setting-row"><span>记住播放位置</span><span class="switch"><input type="checkbox" name="rememberProgress" data-setting ${settings.rememberProgress ? "checked" : ""}>开启</span></label><label class="setting-row"><span>检查间隔</span><select name="updateIntervalMinutes" data-setting><option value="60" ${settings.updateIntervalMinutes === 60 ? "selected" : ""}>每小时</option><option value="180" ${settings.updateIntervalMinutes === 180 ? "selected" : ""}>每 3 小时</option><option value="360" ${settings.updateIntervalMinutes === 360 ? "selected" : ""}>每 6 小时</option></select></label></div>
   </div></section>`;
 }
@@ -403,7 +405,12 @@ async function cacheTracks(tracks, section) {
   const contextual = tracks.map(track => trackWithContext(track, section));
   await send(MESSAGE.cacheCommand, {
     command: "cacheTracks",
-    payload: { tracks: contextual, section: { id: section.id, type: section.type, title: section.title } }
+    payload: {
+      tracks: contextual,
+      section: { id: section.id, type: section.type, title: section.title },
+      format: ui.app.settings.defaultFormat,
+      bitrate: ui.app.settings.mp3Bitrate
+    }
   });
   ui.notice = `已将 ${contextual.length} 个作品加入缓存队列。`;
   await refreshCacheInfo();
@@ -429,7 +436,12 @@ async function cacheWholeSection(section) {
     const contextual = listing.items.map(track => trackWithContext(track, section));
     await send(MESSAGE.cacheCommand, {
       command: "cacheTracks",
-      payload: { tracks: contextual, section: { id: section.id, type: section.type, title: section.title } }
+      payload: {
+        tracks: contextual,
+        section: { id: section.id, type: section.type, title: section.title },
+        format: ui.app.settings.defaultFormat,
+        bitrate: ui.app.settings.mp3Bitrate
+      }
     });
     accepted += listing.items.length;
     ui.notice = `正在加入缓存队列：${Math.min(accepted, total)} / ${total}`;

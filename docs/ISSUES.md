@@ -53,3 +53,15 @@
 - 解决方案：名称搜索请求显式使用 `https://search.bilibili.com/` 作为 referrer，并采用严格来源策略；提交请求前进行 Unicode NFKC 规范化，移除零宽字符与 `@` 前缀；结果中完全同名的 UP 主优先显示。
 - 验证方式：新增自动化测试模拟需要正确 referrer 才成功的接口，确认“小Lin说”、带零宽字符的名称及 `＠小Ｌｉｎ说` 都能标准化并命中 UID `520819684`，同时确认完全同名结果排在首位。执行全部 JavaScript 测试、语法检查和 `git diff --check`。
 - 相关文件：`services/bilibili.js`、`tests/bilibili-search.test.mjs`、`docs/ISSUES.md`
+
+## ISSUE-006：本地缓存尚不支持 MP3 格式
+
+- 日期：2026-09-09
+- 状态：已解决
+- 修改背景：用户需要把哔哩哔哩作品音频缓存为通用的 MP3 文件，并可选择 128、192 或 320 kbps；原始格式仍需保留为可选项。
+- 原因：初版只把站点提供的 M4A 或 WebM 音频流原样写入目录，设置页中的 MP3 选项处于禁用状态，缓存任务也没有传递格式和码率。
+- 方案修正：最初计划使用浏览器 WebCodecs `AudioEncoder`，但在用户当前 Edge 的哔哩哔哩页面进行只读能力检测时 `AudioEncoder` 不存在，仅依赖该能力会导致实际环境不可用。因此改为随扩展打包未修改的 `@breezystack/lamejs 1.2.7`，并在独立 Worker 中编码，保留其 LGPL-3.0 许可证及来源说明；不需要额外程序、服务、CDN 或运行时联网。
+- 解决方案：缓存任务携带格式和码率；选择 MP3 时先下载完整音频、通过 Web Audio 解码，再分块发送到后台 Worker 编码为 `audio/mpeg` 并写入 `.mp3`。设置页开放格式及码率选择，缓存状态展示下载、解码和编码阶段，自动追更缓存沿用当前设置。相同作品仅在相同格式与码率已有有效文件时跳过，切换格式或码率后允许重新缓存；原始格式仍采用流式写入，不增加内存占用。
+- 兼容性说明：转换不上传音频，但完整解码长音频会短时占用较多内存和 CPU；播放本身仍由离屏音频元素处理。
+- 验证方式：新增 MP3 编码自动化测试，使用真实 LAME 编码器生成一秒立体声音频，验证码率规范化、PCM 转换、输出长度和 MPEG 帧同步字；执行全部 JavaScript 测试、语法检查与 `git diff --check`。为保持未修改的上游文件可逐字节替换，`vendor/lamejs/` 通过 `.gitattributes` 排除项目空白规则，应用代码仍完整检查。
+- 相关文件：`.gitattributes`、`services/mp3.js`、`services/mp3-core.js`、`offscreen/mp3-worker.js`、`offscreen/offscreen.js`、`background/service-worker.js`、`ui/app.js`、`vendor/lamejs/`、`tests/mp3.test.mjs`、`README.md`、`docs/THIRD_PARTY_NOTICES.md`、`docs/ISSUES.md`
