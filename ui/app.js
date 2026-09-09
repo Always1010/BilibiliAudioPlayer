@@ -6,6 +6,7 @@ import { playbackSourceLabel } from "../services/playback-source.js";
 import { playlistItemToTrack } from "../services/playlists.js";
 import { parsePlaylistExport, serializePlaylistExport } from "../services/playlist-transfer.js";
 import { cacheCoverageForTracks, cacheRecordBytes } from "../services/cache-records.js";
+import { loadAllSectionPages } from "../services/section-pagination.js";
 
 const root = document.getElementById("app");
 const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
@@ -29,6 +30,7 @@ const ui = {
   searchKeyword: "",
   searching: false,
   loading: false,
+  loadingSectionKey: null,
   error: "",
   notice: "",
   cacheInfo: null,
@@ -176,12 +178,13 @@ function sectionCard(section) {
   const subscriptionKey = `${activeCreator()?.id}:${section.key}`;
   const following = Boolean(ui.app?.subscriptions?.[subscriptionKey]?.enabled);
   const hasCover = Boolean(section.cover);
+  const loading = ui.loadingSectionKey === section.key;
   return `<article class="section-card ${open ? "open" : ""} ${hasCover ? "has-cover" : ""}">
     <div class="section-header">
       <button class="section-toggle" type="button" data-action="toggle-section" data-key="${escapeHtml(section.key)}" aria-expanded="${open}" aria-label="${open ? "收起" : "展开"}${escapeHtml(title)}">${symbol("›")}</button>
       ${hasCover ? `<button class="section-cover-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}" aria-label="进入 ${escapeHtml(title)} 详情">${image(section.cover, `${title}封面`, "section-cover")}</button>` : ""}
       <button class="section-title-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}"><h2 class="section-title">${escapeHtml(title)}</h2><span class="section-meta">${section.total} 个作品${section.updatedAt ? ` · 更新于 ${formatDate(section.updatedAt)}` : ""}${following ? " · 自动追更" : ""}</span></button>
-      <div class="section-actions"><button class="icon-button" type="button" data-action="play-section" data-key="${escapeHtml(section.key)}" aria-label="播放全部">${symbol("▶")}</button><button class="icon-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}" aria-label="缓存全部">${symbol("⇩")}</button><button class="ghost-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}">进入详情</button></div>
+      <div class="section-actions"><button class="icon-button" type="button" data-action="play-section" data-key="${escapeHtml(section.key)}" aria-label="${loading ? "正在读取全部作品" : "播放全部"}" ${loading ? "disabled" : ""}>${symbol(loading ? "◌" : "▶", loading ? "spinner" : "")}</button><button class="icon-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}" aria-label="缓存全部" ${loading ? "disabled" : ""}>${symbol("⇩")}</button><button class="ghost-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}" ${loading ? "disabled" : ""}>${loading ? "正在读取作品…" : "进入详情"}</button></div>
     </div>
     <div class="section-preview">${items.length ? trackRows(items, section, 4) : '<div class="notice">展开后尚无预览数据，进入详情可以重新加载。</div>'}${section.total > 4 ? `<button class="more-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}">查看全部 ${section.total} 个作品</button>` : ""}</div>
   </article>`;
@@ -589,6 +592,46 @@ async function loadMoreDetail() {
     ui.error = toErrorMessage(error);
   } finally {
     ui.loading = false;
+    render();
+  }
+}
+
+async function loadCompleteSection(section) {
+  if (!section) throw new Error("未找到要播放的栏目");
+  const creator = activeCreator();
+  if (!creator) throw new Error("请先选择一个 UP 主");
+  const pageSize = section.type === "all" ? 50 : 100;
+  ui.loadingSectionKey = section.key;
+  ui.error = "";
+  ui.notice = `正在读取“${section.title}”的全部作品…`;
+  render();
+  try {
+    const result = await loadAllSectionPages(
+      (page, size) => send(MESSAGE.loadSection, {
+        creatorId: creator.id,
+        section: { id: section.id, type: section.type },
+        page,
+        pageSize: size
+      }),
+      {
+        pageSize,
+        onProgress: ({ items, total }) => {
+          ui.notice = `正在读取“${section.title}”：${Math.min(items.length, total)} / ${total}`;
+          render();
+        }
+      }
+    );
+    if (ui.activeSection?.key === section.key) {
+      ui.detailData = { items: result.items, total: result.total, page: result.page, pageSize };
+      ui.detailPage = result.page;
+    }
+    if (!result.items.length) throw new Error("当前栏目没有可播放的作品");
+    return result.items;
+  } catch (error) {
+    ui.notice = "";
+    throw error;
+  } finally {
+    ui.loadingSectionKey = null;
     render();
   }
 }
@@ -1005,12 +1048,11 @@ root.addEventListener("click", async event => {
     }
     else if (action === "play-section") {
       const section = findSection(button.dataset.key);
-      const queue = queueForSection(section);
-      if (!queue.length) await openSection(section.key);
-      else await playerCommand("playQueue", { queue, index: 0, queueContext: queueContextForSection(section) });
+      const items = await loadCompleteSection(section);
+      await playerCommand("playQueue", { queue: queueForSection(section, items), index: 0, queueContext: queueContextForSection(section) });
     }
     else if (action === "play-detail") {
-      const items = ui.detailData?.items ?? ui.activeSection.items ?? [];
+      const items = await loadCompleteSection(ui.activeSection);
       await playerCommand("playQueue", { queue: queueForSection(ui.activeSection, items), index: 0, queueContext: queueContextForSection(ui.activeSection) });
     }
     else if (action === "play-track") {
