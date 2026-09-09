@@ -28,6 +28,9 @@ export async function initializeStorage() {
   if (!stored[STORAGE_KEYS.subscriptions]) {
     changes[STORAGE_KEYS.subscriptions] = {};
   }
+  if (!Array.isArray(stored[STORAGE_KEYS.playlists])) {
+    changes[STORAGE_KEYS.playlists] = [];
+  }
 
   if (Object.keys(changes).length) {
     await chrome.storage.local.set(changes);
@@ -42,7 +45,8 @@ export async function getAppState() {
     player: { ...DEFAULT_PLAYER, ...(stored[STORAGE_KEYS.player] ?? {}) },
     settings: { ...DEFAULT_SETTINGS, ...(stored[STORAGE_KEYS.settings] ?? {}) },
     updateState: stored[STORAGE_KEYS.updateState] ?? {},
-    subscriptions: stored[STORAGE_KEYS.subscriptions] ?? {}
+    subscriptions: stored[STORAGE_KEYS.subscriptions] ?? {},
+    playlists: stored[STORAGE_KEYS.playlists] ?? []
   };
 }
 
