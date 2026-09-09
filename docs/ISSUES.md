@@ -221,3 +221,14 @@
 - 数据边界：播放列表仍只保存 BV 号等最小元数据，不保存文件路径。文件格式、码率、大小和路径只存在统一缓存索引中；底部来源徽标会显示实际命中的归档名称。
 - 验证方式：新增多位置缓存纯函数测试，覆盖旧记录迁移、栏目优先级、位置匹配、总容量和失效位置移除；扩展播放来源测试覆盖归档名称，并执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.6.0 JSON 检查和 `git diff --check`。
 - 相关文件：`services/cache-records.js`、`services/file-store.js`、`offscreen/offscreen.js`、`services/playback-source.js`、`ui/app.js`、`tests/cache-records.test.mjs`、`tests/playback-source.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-021：自定义播放列表无法按目录实体归档
+
+- 日期：2026-09-09
+- 状态：已解决
+- 修改背景：用户把缓存目录同时作为长期音频归档，希望自定义播放列表像合集和系列一样拥有独立、可在资源管理器中整理和备份的实体目录，同时仍可复用其他栏目的本地文件。
+- 原因：播放列表详情没有缓存入口；缓存下载路径只认识全部作品、合集和系列；单个作品在任何位置已缓存就会全局跳过，无法建立播放列表自己的归档副本，也没有磁盘侧清单帮助恢复对应关系。
+- 解决方案：播放列表详情增加“缓存到列表目录”，目标路径为 `我的播放列表/列表名称 [内部短ID]`，同名列表不会互相覆盖。目标已有同格式文件则跳过；其他栏目存在同格式和同 MP3 码率的有效副本时直接本地复制，只有无可用副本才联网下载。每次成功或跳过都会更新 `哔哩音频清单.json`，记录栏目身份、作品顺序、BV 号、文件名和最小媒体信息。详情显示当前列表归档覆盖数与任意本地可用数，缓存管理按实体副本统计数量和总空间并列出来源栏目。
+- 数据与文件边界：播放列表元数据仍不保存路径；删除或重命名列表不会自动删除、移动归档目录。归档清单和多位置索引负责建立逻辑关联，避免用户的实体归档被界面操作静默破坏。
+- 验证方式：新增归档清单纯函数测试，覆盖最小字段、逐项完成合并和损坏清单容错；扩展多位置覆盖统计测试，并执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.6.1 JSON 检查和 `git diff --check`。
+- 相关文件：`services/archive-manifest.js`、`services/cache-records.js`、`offscreen/offscreen.js`、`ui/app.js`、`tests/archive-manifest.test.mjs`、`tests/cache-records.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
