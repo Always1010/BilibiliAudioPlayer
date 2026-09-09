@@ -69,6 +69,11 @@ function creatorNav() {
   }).join("");
 }
 
+function cacheWorkCount() {
+  const info = ui.cacheInfo;
+  return Number(info?.queued ?? 0) + (info?.current ? 1 : 0);
+}
+
 function topbar() {
   const loggedIn = Boolean(ui.activeContent?.login?.isLoggedIn);
   return `<header class="topbar">
@@ -100,9 +105,10 @@ function searchResults() {
 }
 
 function sidebar() {
+  const workCount = cacheWorkCount();
   return `<aside class="sidebar" aria-label="主导航">
     <button class="nav-button ${ui.view === "creator" || ui.view === "detail" ? "active" : ""}" type="button" data-action="show-creator">${symbol("⌂")}UP 主主页</button>
-    <button class="nav-button ${ui.view === "downloads" ? "active" : ""}" type="button" data-action="show-downloads">${symbol("⇩")}缓存管理</button>
+    <button class="nav-button ${ui.view === "downloads" ? "active" : ""}" type="button" data-action="show-downloads">${symbol("⇩")}缓存管理${workCount ? `<span class="nav-badge" aria-label="${workCount} 个缓存任务">${workCount}</span>` : ""}</button>
     <div class="sidebar-label">关注的 UP 主</div>
     ${creatorNav()}
   </aside>`;
@@ -214,17 +220,48 @@ function downloadsPage() {
   const directory = info?.directory;
   const records = info?.records ?? [];
   const totalBytes = records.reduce((sum, record) => sum + Number(record.size || 0), 0);
-  const activity = ui.cacheActivity;
+  const activity = info?.activity ?? ui.cacheActivity;
+  const current = info?.current;
+  const pending = info?.pending ?? [];
+  const recent = info?.recent ?? [];
+  const activeCount = pending.length + (current ? 1 : 0);
+  const progress = Math.max(0, Math.min(100, Math.round(Number(activity?.progress ?? 0) * 100)));
   return `<section><div class="page-heading"><div><h1>缓存管理</h1><p>本地目录、下载队列和离线文件</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="refresh-cache">${symbol("↻")}刷新</button><button class="primary-button" type="button" data-action="choose-folder">${symbol("▣")}${directory?.configured ? "重新授权目录" : "选择缓存目录"}</button></div></div>
     ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
     ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}
     <div class="settings-grid">
       <div class="settings-panel"><h2>本地目录</h2><div class="setting-row"><span>目录名称</span><strong>${escapeHtml(directory?.name || "尚未选择")}</strong></div><div class="setting-row"><span>访问权限</span><strong class="${directory?.permission === "granted" ? "cached" : ""}">${directory?.permission === "granted" ? "可读写" : directory?.configured ? "需要重新授权" : "未配置"}</strong></div></div>
-      <div class="settings-panel"><h2>缓存概览</h2><div class="setting-row"><span>已缓存作品</span><strong>${records.length}</strong></div><div class="setting-row"><span>占用空间</span><strong>${formatBytes(totalBytes)}</strong></div></div>
+      <div class="settings-panel"><h2>缓存概览</h2><div class="setting-row"><span>进行中与等待</span><strong>${activeCount}</strong></div><div class="setting-row"><span>已缓存作品</span><strong>${records.length}</strong></div><div class="setting-row"><span>占用空间</span><strong>${formatBytes(totalBytes)}</strong></div></div>
     </div>
-    ${activity && activity.status !== "idle" ? `<div class="notice">${activity.track ? `正在处理：${escapeHtml(activity.track.title)} · ` : ""}${cacheStatusText(activity)}</div>` : ""}
+    <div class="cache-queue-panel">
+      <div class="cache-panel-heading"><div><h2>缓存队列</h2><p>${current ? "正在处理 1 个任务" : "当前没有正在处理的任务"}${pending.length ? `，另有 ${pending.length} 个等待中` : ""}</p></div><span class="queue-count">${activeCount}</span></div>
+      ${current ? `<div class="queue-current"><div class="queue-status-line"><span class="status-dot active"></span><strong>${escapeHtml(current.track.title)}</strong><span>${cacheStatusText(activity)}</span></div><div class="queue-meta">${escapeHtml(current.track.creator?.name || "未知UP主")} · ${cacheFormatText(current)}</div>${["downloading", "encoding"].includes(activity?.status) ? `<div class="queue-progress" aria-label="缓存进度 ${progress}%"><span style="width:${progress}%"></span></div>` : ""}</div>` : '<div class="queue-empty">缓存作品或合集后，任务会在这里按顺序显示。</div>'}
+      ${pending.length ? `<div class="queue-list"><div class="queue-list-title">等待中</div>${pending.map((task, index) => cacheTaskRow(task, `${index + 1}`, "等待中")).join("")}</div>` : ""}
+    </div>
+    ${recent.length ? `<div class="cache-history-panel"><div class="cache-panel-heading"><div><h2>最近任务</h2><p>保留本次后台会话最近 ${recent.length} 条结果</p></div></div><div class="queue-list">${recent.slice(0, 20).map(task => cacheTaskRow(task, cacheHistorySymbol(task.status), cacheHistoryText(task))).join("")}</div></div>` : ""}
+    <h2 class="cache-files-heading">已缓存文件</h2>
     ${records.length ? `<div class="track-table" style="margin-top:12px">${records.slice().reverse().slice(0, 100).map((record, index) => `<div class="track-row"><span class="track-index">${String(index + 1).padStart(2, "0")}</span><div><div class="track-title">${escapeHtml(record.title)}</div><div class="track-subtitle">${escapeHtml(record.creator?.name || "")}${record.format === "mp3" ? ` · MP3 ${record.bitrate} kbps` : " · 原始格式"}</div></div><span class="track-duration">${formatBytes(record.size)}</span><div class="track-actions"><span class="cached">✓</span></div></div>`).join("")}</div>` : '<div class="download-placeholder" style="margin-top:12px"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}
   </section>`;
+}
+
+function cacheFormatText(task) {
+  return task.format === "mp3" ? `MP3 ${task.bitrate} kbps` : "原始格式";
+}
+
+function cacheHistorySymbol(status) {
+  if (status === "failed") return "!";
+  if (status === "skipped") return "—";
+  return "✓";
+}
+
+function cacheHistoryText(task) {
+  if (task.status === "failed") return task.message ? `失败：${task.message}` : "失败";
+  if (task.status === "skipped") return "已存在，已跳过";
+  return "已完成";
+}
+
+function cacheTaskRow(task, marker, statusText) {
+  return `<div class="queue-row ${task.status === "failed" ? "failed" : ""}"><span class="queue-marker">${escapeHtml(marker)}</span><div class="queue-copy"><div class="track-title">${escapeHtml(task.track?.title || "未命名作品")}</div><div class="track-subtitle">${escapeHtml(task.track?.creator?.name || "未知UP主")} · ${cacheFormatText(task)}</div></div><span class="queue-state">${escapeHtml(statusText)}</span></div>`;
 }
 
 function formatBytes(bytes) {
@@ -596,10 +633,11 @@ chrome.runtime.onMessage.addListener(message => {
     renderPlayer();
   }
   if (message?.type === MESSAGE.cacheEvent && ui.app) {
-    ui.cacheActivity = message.cache;
+    ui.cacheInfo = { ...(ui.cacheInfo ?? {}), ...message.cache };
+    ui.cacheActivity = message.cache.activity ?? message.cache;
     if (["completed", "failed", "idle"].includes(message.cache.status)) {
       refreshCacheInfo().then(() => render());
-    } else if (ui.view === "downloads") {
+    } else if (ui.view === "downloads" || ["started", "preparing", "skipped"].includes(message.cache.status)) {
       render();
     }
   }
