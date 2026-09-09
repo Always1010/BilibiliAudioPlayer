@@ -250,7 +250,7 @@ function downloadsPage() {
   const recent = info?.recent ?? [];
   const activeCount = pending.length + (current ? 1 : 0);
   const progress = Math.max(0, Math.min(100, Math.round(Number(activity?.progress ?? 0) * 100)));
-  return `<section><div class="page-heading"><div><h1>缓存管理</h1><p>本地目录、下载队列和离线文件</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="refresh-cache">${symbol("↻")}刷新</button><button class="primary-button" type="button" data-action="choose-folder">${symbol("▣")}${directory?.configured ? "重新授权目录" : "选择缓存目录"}</button></div></div>
+  return `<section><div class="page-heading"><div><h1>缓存管理</h1><p>本地目录、下载队列和离线文件</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="refresh-cache">${symbol("↻")}刷新</button><button class="plain-button" type="button" data-action="scan-cache-archives">${symbol("⌕")}扫描归档</button><button class="primary-button" type="button" data-action="choose-folder">${symbol("▣")}${directory?.configured ? "重新授权目录" : "选择缓存目录"}</button></div></div>
     ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
     ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}
     <div class="settings-grid">
@@ -1030,6 +1030,14 @@ root.addEventListener("click", async event => {
     }
     else if (action === "refresh-cache") {
       await refreshCacheInfo();
+      render();
+    }
+    else if (action === "scan-cache-archives") {
+      ui.notice = "正在扫描缓存目录、验证旧索引并恢复归档文件……";
+      render();
+      ui.cacheInfo = await send(MESSAGE.cacheCommand, { command: "scanArchives" });
+      const recovery = ui.cacheInfo.recovery;
+      ui.notice = `归档扫描完成：识别 ${recovery.files} 个音频文件、${recovery.manifests} 份清单${recovery.errors ? `，${recovery.errors} 个文件未能读取` : ""}。`;
       render();
     }
     else if (action === "cache-track") {

@@ -48,3 +48,35 @@ export function parseArchiveManifest(source) {
     return null;
   }
 }
+
+export function parseArchiveAudioFilename(filename) {
+  const match = String(filename).match(/^(?:\d+\s*-\s*)?(.*?)\s*\[(BV[0-9A-Za-z]{6,30})\]\.(mp3|m4a|webm)$/i);
+  if (!match) return null;
+  return {
+    title: match[1].trim() || match[2],
+    bvid: match[2],
+    extension: match[3].toLowerCase(),
+    format: match[3].toLowerCase() === "mp3" ? "mp3" : "original"
+  };
+}
+
+export function recoveredArchiveScope(directoryPath) {
+  const parts = (directoryPath ?? []).map(String);
+  if (parts[0] === "我的播放列表") {
+    return {
+      key: `recovered:${parts.join("/")}`,
+      type: "playlist",
+      id: "",
+      title: parts[1] || "恢复的播放列表归档"
+    };
+  }
+  const typeName = parts[1];
+  const type = typeName === "合集" ? "season" : typeName === "系列" ? "series" : typeName === "全部作品" ? "all" : "recovered";
+  const creatorId = String(parts[0] || "").split("_").at(-1);
+  return {
+    key: type === "all" && creatorId ? `all:${creatorId}` : `recovered:${parts.join("/")}`,
+    type,
+    id: type === "all" ? creatorId : "",
+    title: parts[2] || typeName || parts.at(-1) || "恢复的归档"
+  };
+}

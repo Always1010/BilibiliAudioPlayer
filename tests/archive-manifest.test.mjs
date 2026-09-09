@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import {
   ARCHIVE_MANIFEST_FILENAME,
   buildArchiveManifest,
-  parseArchiveManifest
+  parseArchiveAudioFilename,
+  parseArchiveManifest,
+  recoveredArchiveScope
 } from "../services/archive-manifest.js";
 
 const scope = { key: "playlist:p1", type: "playlist", id: "p1", title: "工作音乐" };
@@ -32,5 +34,19 @@ assert.equal(second.items[0].filename, first.items[0].filename);
 assert.equal(second.items[1].format, "original");
 assert.deepEqual(parseArchiveManifest(JSON.stringify(second)), second);
 assert.equal(parseArchiveManifest("not json"), null);
+assert.deepEqual(parseArchiveAudioFilename("001 - 第一首 [BV1ARCHIVE1].mp3"), {
+  title: "第一首",
+  bvid: "BV1ARCHIVE1",
+  extension: "mp3",
+  format: "mp3"
+});
+assert.equal(parseArchiveAudioFilename("没有BV号.mp3"), null);
+assert.deepEqual(recoveredArchiveScope(["我的播放列表", "工作音乐 [abcd]"]), {
+  key: "recovered:我的播放列表/工作音乐 [abcd]",
+  type: "playlist",
+  id: "",
+  title: "工作音乐 [abcd]"
+});
+assert.equal(recoveredArchiveScope(["测试UP_7", "全部作品"]).key, "all:7");
 
 console.log("归档清单：最小元数据、分步完成合并和异常解析通过");
