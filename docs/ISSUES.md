@@ -189,3 +189,14 @@
 - 交互边界：原“播放全部”和“缓存全部”保持整栏含义；清除或更改关键词后，结果操作会随当前筛选同步更新。
 - 验证方式：复用作品搜索与播放列表自动化测试，执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.4.1 JSON 检查和 `git diff --check`。
 - 相关文件：`ui/app.js`、`ui/app.css`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-018：自定义播放列表无法迁移和恢复
+
+- 日期：2026-09-09
+- 状态：已解决
+- 修改背景：用户需要把自定义播放列表迁移到另一台电脑或浏览器，但明确不迁移实际音频文件，只要求列表中的作品可以通过 BV 号重新溯源。
+- 原因：播放列表仅保存在扩展本地存储中，没有稳定的交换格式、文件校验、导入预览或冲突处理策略。
+- 解决方案：定义版本 1 的 JSON 备份格式，导出播放列表顺序及最小作品快照（BV 号、标题、时长、UP 主 UID/名称、添加时间）和必要的列表元数据，不导出封面、AID、CID、栏目来源、缓存状态、缓存路径、CDN 地址或音频文件。导入限制为 5 MB、500 个列表和 10000 个作品，并校验文件标识、版本、ID、名称和 BV 号；预览后可合并或替换。同 ID 合并冲突保留两份，为导入副本生成新 ID 并追加“（导入）”。
+- 安全与数据边界：导入内容经白名单规范化后才写入存储，额外字段会被丢弃；“替换”前需要二次确认，且两种方式都不会读写或删除缓存目录中的音频。
+- 验证方式：新增迁移纯函数测试，覆盖最小字段导出、解析统计、非法 JSON、错误文件类型、未知版本、非法 BV 号、同 ID 合并冲突与替换模式；执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.5.0 JSON 检查和 `git diff --check`。
+- 相关文件：`services/playlist-transfer.js`、`background/service-worker.js`、`ui/app.js`、`ui/app.css`、`tests/playlist-transfer.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`

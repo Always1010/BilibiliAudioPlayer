@@ -4,6 +4,7 @@ import { chooseCacheDirectory } from "../services/file-store.js";
 import { filterTracksByKeyword } from "../services/track-search.js";
 import { playbackSourceLabel } from "../services/playback-source.js";
 import { playlistItemToTrack } from "../services/playlists.js";
+import { parsePlaylistExport, serializePlaylistExport } from "../services/playlist-transfer.js";
 
 const root = document.getElementById("app");
 const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
@@ -19,6 +20,7 @@ const ui = {
   queueOpen: false,
   activePlaylistId: null,
   playlistPicker: null,
+  playlistImportPreview: null,
   expanded: new Set(["all"]),
   searchResults: [],
   searchKeyword: "",
@@ -285,7 +287,7 @@ function playlistDetail(playlist) {
 function playlistsPage() {
   const playlist = activePlaylist();
   if (playlist) return playlistDetail(playlist);
-  return `<section>${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}<div class="page-heading"><div><h1>我的播放列表</h1><p>跨 UP 主保存作品和固定播放顺序</p></div></div><form class="playlist-create-form" data-form="create-playlist"><input name="name" maxlength="80" placeholder="新播放列表名称" aria-label="新播放列表名称"><button class="primary-button" type="submit">${symbol("+")}创建</button></form>${playlistCards()}</section>`;
+  return `<section>${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}<div class="page-heading"><div><h1>我的播放列表</h1><p>跨 UP 主保存作品和固定播放顺序</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="import-playlists">${symbol("⇧")}导入</button><button class="plain-button" type="button" data-action="export-playlists">${symbol("⇩")}导出</button><input class="visually-hidden" type="file" accept="application/json,.json" data-role="playlist-import-file"></div></div><form class="playlist-create-form" data-form="create-playlist"><input name="name" maxlength="80" placeholder="新播放列表名称" aria-label="新播放列表名称"><button class="primary-button" type="submit">${symbol("+")}创建</button></form>${playlistCards()}</section>`;
 }
 
 function cacheFormatText(task) {
@@ -380,8 +382,16 @@ function playlistPickerMarkup() {
   return `<div class="modal-backdrop" data-action="close-playlist-picker"><section class="playlist-picker" role="dialog" aria-modal="true" aria-label="添加到播放列表"><div class="playlist-picker-header"><div><h2>添加到播放列表</h2><p>${escapeHtml(picker.label)} · ${picker.tracks.length} 个作品</p></div><button class="icon-button" type="button" data-action="close-playlist-picker" aria-label="关闭">${symbol("×")}</button></div><div class="playlist-picker-list">${playlists.map(playlist => `<button type="button" data-action="add-to-playlist" data-id="${escapeHtml(playlist.id)}"><span>${escapeHtml(playlist.name)}</span><small>${playlist.items.length} 个作品</small></button>`).join("") || '<div class="queue-empty">还没有播放列表，可以在下方新建。</div>'}</div><form class="playlist-create-form modal-create" data-form="create-and-add-playlist"><input name="name" maxlength="80" placeholder="新播放列表名称" aria-label="新播放列表名称"><button class="primary-button" type="submit">新建并添加</button></form></section></div>`;
 }
 
+function playlistImportPreviewMarkup() {
+  const preview = ui.playlistImportPreview;
+  if (!preview) return "";
+  const currentIds = new Set((ui.app?.playlists ?? []).map(playlist => playlist.id));
+  const conflicts = preview.playlists.filter(playlist => currentIds.has(playlist.id)).length;
+  return `<div class="modal-backdrop" data-action="close-playlist-import"><section class="playlist-picker import-preview" role="dialog" aria-modal="true" aria-label="预览播放列表导入"><div class="playlist-picker-header"><div><h2>预览导入</h2><p>${escapeHtml(preview.fileName)}</p></div><button class="icon-button" type="button" data-action="close-playlist-import" aria-label="关闭">${symbol("×")}</button></div><div class="import-summary"><strong>${preview.playlistCount}</strong><span>个播放列表</span><strong>${preview.itemCount}</strong><span>个作品</span></div>${conflicts ? `<div class="notice">检测到 ${conflicts} 个同 ID 播放列表。合并时会保留两份，并将导入副本标记为“（导入）”。</div>` : ""}<p class="import-help">备份仅包含 BV 号、标题、时长、UP 主信息和添加时间，不包含音频文件或缓存路径。</p><div class="import-actions"><button class="plain-button" type="button" data-action="confirm-playlist-import" data-mode="merge">合并到现有列表</button><button class="danger-button" type="button" data-action="confirm-playlist-import" data-mode="replace">替换现有列表</button></div></section></div>`;
+}
+
 function render() {
-  root.innerHTML = `<div class="shell">${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}</div>`;
+  root.innerHTML = `<div class="shell">${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}${playlistImportPreviewMarkup()}</div>`;
 }
 
 function renderPlayer() {
@@ -588,6 +598,32 @@ async function addPickerTracks(playlistId) {
   render();
 }
 
+function exportPlaylists() {
+  const text = serializePlaylistExport(ui.app?.playlists ?? [], {
+    appVersion: chrome.runtime.getManifest().version
+  });
+  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `哔哩音频-播放列表-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+  ui.notice = `已导出 ${ui.app?.playlists?.length ?? 0} 个播放列表。`;
+  render();
+}
+
+async function previewPlaylistImport(file) {
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) throw new Error("导入文件不能超过 5 MB");
+  const parsed = parsePlaylistExport(await file.text());
+  ui.playlistImportPreview = { ...parsed, fileName: file.name };
+  ui.error = "";
+  render();
+}
+
 async function refreshCacheInfo() {
   try {
     ui.cacheInfo = await send(MESSAGE.cacheCommand, { command: "status" });
@@ -669,6 +705,15 @@ root.addEventListener("submit", event => {
 });
 
 root.addEventListener("change", async event => {
+  if (event.target.matches('[data-role="playlist-import-file"]')) {
+    try {
+      await previewPlaylistImport(event.target.files?.[0]);
+    } catch (error) {
+      ui.error = toErrorMessage(error);
+      render();
+    }
+    return;
+  }
   const follow = event.target.closest('[data-action="follow-section"]');
   if (follow) {
     const section = ui.activeSection;
@@ -713,6 +758,27 @@ root.addEventListener("click", async event => {
   try {
     if (action === "show-creator") { ui.view = "creator"; ui.error = ""; render(); }
     else if (action === "show-playlists") { ui.view = "playlists"; ui.activePlaylistId = null; ui.error = ""; render(); }
+    else if (action === "export-playlists") exportPlaylists();
+    else if (action === "import-playlists") {
+      const input = root.querySelector('[data-role="playlist-import-file"]');
+      if (input) { input.value = ""; input.click(); }
+    }
+    else if (action === "close-playlist-import") {
+      if (event.target === button || button.closest(".playlist-picker-header")) {
+        ui.playlistImportPreview = null;
+        render();
+      }
+    }
+    else if (action === "confirm-playlist-import") {
+      const preview = ui.playlistImportPreview;
+      const mode = button.dataset.mode;
+      if (!preview) return;
+      if (mode === "replace" && !window.confirm("确定用导入内容替换现有全部播放列表吗？此操作不会删除音频缓存。")) return;
+      await playlistCommand("import", { playlists: preview.playlists, mode });
+      ui.playlistImportPreview = null;
+      ui.notice = `已${mode === "replace" ? "替换" : "合并"} ${preview.playlistCount} 个播放列表，共 ${preview.itemCount} 个作品。`;
+      render();
+    }
     else if (action === "show-downloads") { ui.view = "downloads"; render(); }
     else if (action === "show-settings") { ui.view = "settings"; render(); }
     else if (action === "open-full") await send(MESSAGE.openPlayer);
