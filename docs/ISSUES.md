@@ -138,3 +138,13 @@
 - 交互范围：搜索只改变详情页当前显示的作品，不修改栏目内容、播放队列、缓存文件或自动追更设置；“播放全部”和“缓存全部”仍保持原有的整栏含义。
 - 验证方式：新增纯函数自动化测试，验证全半角和大小写规范化、多关键词、标题、BV 号、简介、无结果及空关键词行为；执行全部现有测试、所有 JavaScript 语法检查、Manifest JSON 检查和 `git diff --check`。
 - 相关文件：`services/track-search.js`、`ui/app.js`、`ui/app.css`、`tests/track-search.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-013：底部播放栏无法判断实际播放来源
+
+- 日期：2026-09-09
+- 状态：已解决
+- 修改背景：用户需要明确知道当前作品正在使用在线音频流，还是来自本地原始格式或 MP3 缓存。
+- 原因：播放器状态只记录当前作品、进度和播放状态，没有记录实际成功加载的媒体来源；仅根据缓存索引推测也不可靠，因为无效或无法解码的缓存会自动回退在线播放。
+- 解决方案：播放器在每次切歌时先把来源重置为“正在加载”，本地文件通过音频就绪验证后才记录具体缓存格式和码率；本地加载失败并成功回退 CDN 后记录为在线。底部播放栏增加对应来源徽标，并随播放器事件持久化和同步到侧边栏及完整页面。
+- 验证方式：新增播放来源纯函数测试，覆盖在线、本地原始格式、MP3 及加载状态；执行全部测试、JavaScript 语法检查和 `git diff --check`。
+- 相关文件：`services/playback-source.js`、`shared/constants.js`、`offscreen/offscreen.js`、`ui/app.js`、`ui/app.css`、`tests/playback-source.test.mjs`、`README.md`、`docs/ISSUES.md`

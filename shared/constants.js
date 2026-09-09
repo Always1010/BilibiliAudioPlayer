@@ -14,6 +14,8 @@ export const DEFAULT_PLAYER = Object.freeze({
   playing: false,
   currentTime: 0,
   duration: 0,
+  loading: false,
+  source: null,
   volume: 0.8,
   mode: "list"
 });

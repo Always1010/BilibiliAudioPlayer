@@ -192,6 +192,9 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .now-cover { width: 44px; height: 44px; flex: 0 0 auto; border-radius: 8px; background: var(--surface-soft); }
 .now-copy { min-width: 0; }
 .now-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.now-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 3px; }
+.source-badge { padding: 2px 6px; color: var(--accent); font-size: 10px; white-space: nowrap; border-radius: 999px; background: var(--accent-soft); }
+.source-badge.local { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
 .player-controls { display: flex; align-items: center; gap: 3px; }
 .play-main { width: 42px; height: 42px; display: grid; place-items: center; color: #fff; border: 0; border-radius: 50%; background: var(--accent); }
 .progress-area { display: grid; grid-template-columns: minmax(60px, 1fr) auto; align-items: center; gap: 8px; }
