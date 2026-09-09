@@ -12,6 +12,7 @@ import { playbackModeLabel } from "../services/playback-mode.js";
 const root = document.getElementById("app");
 const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
 let draggedRow = null;
+let cacheToastTimer = null;
 
 const ui = {
   app: null,
@@ -35,7 +36,8 @@ const ui = {
   error: "",
   notice: "",
   cacheInfo: null,
-  cacheActivity: null
+  cacheActivity: null,
+  cacheToast: null
 };
 
 function symbol(value, className = "") {
@@ -101,6 +103,30 @@ function creatorNav() {
 function cacheWorkCount() {
   const info = ui.cacheInfo;
   return Number(info?.queued ?? 0) + (info?.current ? 1 : 0);
+}
+
+function cacheQueueCount(snapshot = ui.cacheInfo) {
+  return Number(snapshot?.queued ?? 0) + (snapshot?.current ? 1 : 0);
+}
+
+function showCacheToast(message, snapshot = ui.cacheInfo) {
+  ui.cacheToast = { message, count: cacheQueueCount(snapshot) };
+  clearTimeout(cacheToastTimer);
+  cacheToastTimer = setTimeout(() => {
+    ui.cacheToast = null;
+    renderCacheToast();
+  }, 5000);
+  renderCacheToast();
+}
+
+function cacheToastMarkup() {
+  if (!ui.cacheToast) return "";
+  return `<div class="cache-toast" role="status" aria-live="polite"><span class="cache-toast-icon">${symbol("⇩")}</span><div><strong>${escapeHtml(ui.cacheToast.message)}</strong><small>当前队列 ${ui.cacheToast.count} 项</small></div><button class="cache-toast-link" type="button" data-action="open-cache-queue">查看队列</button><button class="cache-toast-close" type="button" data-action="dismiss-cache-toast" aria-label="关闭缓存提示">${symbol("×")}</button></div>`;
+}
+
+function renderCacheToast() {
+  const host = root.querySelector(".cache-toast-host");
+  if (host) host.innerHTML = cacheToastMarkup();
 }
 
 function topbar() {
@@ -440,7 +466,7 @@ function directoryPermissionPromptMarkup() {
 }
 
 function render() {
-  root.innerHTML = `<div class="shell">${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}${playlistImportPreviewMarkup()}${directoryPermissionPromptMarkup()}</div>`;
+  root.innerHTML = `<div class="shell"><div class="cache-toast-host">${cacheToastMarkup()}</div>${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}${playlistImportPreviewMarkup()}${directoryPermissionPromptMarkup()}</div>`;
   applyIconTooltips(root);
 }
 
@@ -736,7 +762,7 @@ async function refreshCacheInfo() {
 async function cacheTracks(tracks, section) {
   if (!tracks.length) throw new Error("当前栏目没有可缓存的作品");
   const contextual = tracks.map(track => trackWithContext(track, section));
-  await send(MESSAGE.cacheCommand, {
+  const snapshot = await send(MESSAGE.cacheCommand, {
     command: "cacheTracks",
     payload: {
       tracks: contextual,
@@ -745,7 +771,9 @@ async function cacheTracks(tracks, section) {
       bitrate: ui.app.settings.mp3Bitrate
     }
   });
+  ui.cacheInfo = { ...(ui.cacheInfo ?? {}), ...snapshot };
   ui.notice = `已将 ${contextual.length} 个作品加入缓存队列。`;
+  showCacheToast(`已将 ${contextual.length} 个作品加入缓存队列`, snapshot);
   await refreshCacheInfo();
   render();
 }
@@ -753,7 +781,7 @@ async function cacheTracks(tracks, section) {
 async function cachePlaylistArchive(playlist) {
   const tracks = playlist.items.map(playlistItemToTrack);
   if (!tracks.length) throw new Error("播放列表没有可缓存的作品");
-  await send(MESSAGE.cacheCommand, {
+  const snapshot = await send(MESSAGE.cacheCommand, {
     command: "cacheTracks",
     payload: {
       tracks,
@@ -762,7 +790,9 @@ async function cachePlaylistArchive(playlist) {
       bitrate: ui.app.settings.mp3Bitrate
     }
   });
+  ui.cacheInfo = { ...(ui.cacheInfo ?? {}), ...snapshot };
   ui.notice = `“${playlist.name}”的 ${tracks.length} 个作品已加入列表归档队列；已有其他本地副本时会优先复制。`;
+  showCacheToast(`已将 ${tracks.length} 个作品加入“${playlist.name}”缓存队列`, snapshot);
   await refreshCacheInfo();
   render();
 }
@@ -784,7 +814,7 @@ async function cacheWholeSection(section) {
     total = Number(listing.total) || total;
     if (!listing.items.length) break;
     const contextual = listing.items.map(track => trackWithContext(track, section));
-    await send(MESSAGE.cacheCommand, {
+    const snapshot = await send(MESSAGE.cacheCommand, {
       command: "cacheTracks",
       payload: {
         tracks: contextual,
@@ -793,6 +823,7 @@ async function cacheWholeSection(section) {
         bitrate: ui.app.settings.mp3Bitrate
       }
     });
+    ui.cacheInfo = { ...(ui.cacheInfo ?? {}), ...snapshot };
     accepted += listing.items.length;
     ui.notice = `正在加入缓存队列：${Math.min(accepted, total)} / ${total}`;
     render();
@@ -800,6 +831,7 @@ async function cacheWholeSection(section) {
     page += 1;
   }
   ui.notice = `“${section.title}”的 ${Math.min(accepted, total)} 个作品已加入缓存队列。`;
+  showCacheToast(`已将 ${Math.min(accepted, total)} 个作品加入缓存队列`, ui.cacheInfo);
   await refreshCacheInfo();
   render();
 }
@@ -969,6 +1001,8 @@ root.addEventListener("click", async event => {
     }
     else if (action === "show-downloads") { ui.view = "downloads"; render(); }
     else if (action === "show-settings") { ui.view = "settings"; render(); }
+    else if (action === "open-cache-queue") { ui.view = "downloads"; ui.cacheToast = null; render(); }
+    else if (action === "dismiss-cache-toast") { ui.cacheToast = null; renderCacheToast(); }
     else if (action === "open-full") await send(MESSAGE.openPlayer);
     else if (action === "toggle-play-queue") {
       ui.queueOpen = !ui.queueOpen;
