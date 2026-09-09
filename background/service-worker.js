@@ -9,8 +9,8 @@ import {
 import {
   getCreator,
   getLoginStatus,
+  listAllCreatorContainers,
   listContainerVideos,
-  listCreatorContainers,
   listCreatorVideos,
   resolveAudioStream,
   searchCreators
@@ -103,7 +103,7 @@ async function loadCreator(id, force = false) {
   const results = await Promise.allSettled([
     getCreator(id),
     listCreatorVideos(id, 1, 30),
-    listCreatorContainers(id, 1, 30),
+    listAllCreatorContainers(id, 20),
     getLoginStatus()
   ]);
 
@@ -121,7 +121,13 @@ async function loadCreator(id, force = false) {
     login,
     loadedAt: Date.now(),
     warnings: results
-      .map((result, index) => result.status === "rejected" ? ["UP 主资料", "全部作品", "合集与系列", "登录状态"][index] : null)
+      .map((result, index) => {
+        if (result.status !== "rejected") return null;
+        const label = ["UP 主资料", "全部作品", "合集与系列", "登录状态"][index];
+        const code = result.reason?.code;
+        const details = toErrorMessage(result.reason);
+        return `${label}（${code == null ? details : `${code}: ${details}`}）`;
+      })
       .filter(Boolean)
   };
 
