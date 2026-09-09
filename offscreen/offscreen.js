@@ -11,6 +11,7 @@ import {
   safeFilePart
 } from "../services/file-store.js";
 import { encodeAudioBufferToMp3, normalizeMp3Bitrate } from "../services/mp3.js";
+import { addCacheHistory, summarizeCacheTask } from "../services/cache-queue-state.js";
 
 const audio = document.getElementById("audio");
 let state = { ...DEFAULT_PLAYER };
@@ -18,6 +19,9 @@ let lastReportedSecond = -1;
 let currentObjectUrl = null;
 const cacheQueue = [];
 let cacheRunning = false;
+let currentCacheTask = null;
+let cacheHistory = [];
+let cacheActivity = { status: "idle" };
 
 async function sendToBackground(message) {
   const response = await chrome.runtime.sendMessage({ ...message, target: "background" });
@@ -103,10 +107,24 @@ async function loadAndPlay(index, resumeAt = 0) {
   await report({ loading: false });
 }
 
+function cacheSnapshot(patch = {}) {
+  return {
+    running: cacheRunning,
+    queued: cacheQueue.length,
+    current: summarizeCacheTask(currentCacheTask),
+    pending: cacheQueue.map(summarizeCacheTask),
+    recent: cacheHistory,
+    activity: cacheActivity,
+    ...patch
+  };
+}
+
 async function reportCache(patch) {
+  cacheActivity = { ...patch };
+  cacheHistory = addCacheHistory(cacheHistory, currentCacheTask, patch);
   await chrome.runtime.sendMessage({
     type: MESSAGE.cacheEvent,
-    cache: { running: cacheRunning, queued: cacheQueue.length, ...patch },
+    cache: cacheSnapshot(patch),
     target: "background"
   });
 }
@@ -243,10 +261,14 @@ async function processCacheQueue() {
   await reportCache({ status: "started" });
   while (cacheQueue.length) {
     const task = cacheQueue.shift();
+    currentCacheTask = task;
     try {
+      await reportCache({ track: task.track, status: "preparing", progress: 0 });
       await downloadTrack(task, getRoot);
     } catch (error) {
       await reportCache({ track: task.track, status: "failed", message: error.message });
+    } finally {
+      currentCacheTask = null;
     }
   }
   cacheRunning = false;
@@ -256,7 +278,7 @@ async function processCacheQueue() {
 async function handleCacheCommand(command, payload = {}) {
   if (command === "status") {
     const [directory, records] = await Promise.all([getCacheDirectoryInfo(), listCacheRecords()]);
-    return { directory, records, running: cacheRunning, queued: cacheQueue.length };
+    return cacheSnapshot({ directory, records });
   }
   if (command === "refreshDirectory") {
     clearCacheDirectoryHandle();
@@ -276,7 +298,7 @@ async function handleCacheCommand(command, payload = {}) {
       }
     });
     processCacheQueue().catch(error => reportCache({ status: "failed", message: error.message }));
-    return { accepted: true, queued: cacheQueue.length, running: true };
+    return cacheSnapshot({ accepted: true });
   }
   throw new Error(`未知缓存命令：${command}`);
 }
