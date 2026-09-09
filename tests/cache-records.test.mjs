@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   archiveScope,
+  cacheCoverageForTracks,
   cacheRecordBytes,
   locationMatches,
   mergeCacheLocation,
@@ -49,6 +50,11 @@ assert.equal(orderedCacheLocations(withPlaylist, "season:10")[0].scope.key, "sea
 assert.equal(orderedCacheLocations(withPlaylist, "playlist:p1")[0].scope.key, "playlist:p1");
 assert.equal(locationMatches(withPlaylist.locations[0], { scopeKey: "playlist:p1", format: "mp3", bitrate: 192 }), true);
 assert.equal(cacheRecordBytes(withPlaylist), 300);
+assert.deepEqual(cacheCoverageForTracks(
+  [{ bvid: "BV1CACHE999" }, { bvid: "BV3MISSING00" }],
+  [withPlaylist],
+  { scopeKey: "playlist:p1", format: "mp3", bitrate: 192 }
+), { total: 2, availableCount: 1, archivedCount: 1 });
 assert.equal(removeCacheLocation(withPlaylist, "playlist:p1:mp3:192").locations.length, 1);
 assert.equal(removeCacheLocation(legacy, legacy.locations[0].id), null);
 

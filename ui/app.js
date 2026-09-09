@@ -5,6 +5,7 @@ import { filterTracksByKeyword } from "../services/track-search.js";
 import { playbackSourceLabel } from "../services/playback-source.js";
 import { playlistItemToTrack } from "../services/playlists.js";
 import { parsePlaylistExport, serializePlaylistExport } from "../services/playlist-transfer.js";
+import { cacheCoverageForTracks, cacheRecordBytes } from "../services/cache-records.js";
 
 const root = document.getElementById("app");
 const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
@@ -235,7 +236,14 @@ function downloadsPage() {
   const info = ui.cacheInfo;
   const directory = info?.directory;
   const records = info?.records ?? [];
-  const totalBytes = records.reduce((sum, record) => sum + Number(record.size || 0), 0);
+  const locations = records.flatMap(record => (record.locations ?? []).map(location => ({
+    ...location,
+    trackId: record.trackId,
+    bvid: record.bvid,
+    title: record.title,
+    creator: record.creator
+  })));
+  const totalBytes = records.reduce((sum, record) => sum + cacheRecordBytes(record), 0);
   const activity = info?.activity ?? ui.cacheActivity;
   const current = info?.current;
   const pending = info?.pending ?? [];
@@ -247,7 +255,7 @@ function downloadsPage() {
     ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}
     <div class="settings-grid">
       <div class="settings-panel"><h2>本地目录</h2><div class="setting-row"><span>目录名称</span><strong>${escapeHtml(directory?.name || "尚未选择")}</strong></div><div class="setting-row"><span>访问权限</span><strong class="${directory?.permission === "granted" ? "cached" : ""}">${directory?.permission === "granted" ? "可读写" : directory?.configured ? "需要重新授权" : "未配置"}</strong></div></div>
-      <div class="settings-panel"><h2>缓存概览</h2><div class="setting-row"><span>进行中与等待</span><strong>${activeCount}</strong></div><div class="setting-row"><span>已缓存作品</span><strong>${records.length}</strong></div><div class="setting-row"><span>占用空间</span><strong>${formatBytes(totalBytes)}</strong></div></div>
+      <div class="settings-panel"><h2>缓存概览</h2><div class="setting-row"><span>进行中与等待</span><strong>${activeCount}</strong></div><div class="setting-row"><span>本地可用作品</span><strong>${records.length}</strong></div><div class="setting-row"><span>归档副本</span><strong>${locations.length}</strong></div><div class="setting-row"><span>占用空间</span><strong>${formatBytes(totalBytes)}</strong></div></div>
     </div>
     <div class="cache-queue-panel">
       <div class="cache-panel-heading"><div><h2>缓存队列</h2><p>${current ? "正在处理 1 个任务" : "当前没有正在处理的任务"}${pending.length ? `，另有 ${pending.length} 个等待中` : ""}</p></div><span class="queue-count">${activeCount}</span></div>
@@ -256,7 +264,7 @@ function downloadsPage() {
     </div>
     ${recent.length ? `<div class="cache-history-panel"><div class="cache-panel-heading"><div><h2>最近任务</h2><p>保留本次后台会话最近 ${recent.length} 条结果</p></div></div><div class="queue-list">${recent.slice(0, 20).map(task => cacheTaskRow(task, cacheHistorySymbol(task.status), cacheHistoryText(task))).join("")}</div></div>` : ""}
     <h2 class="cache-files-heading">已缓存文件</h2>
-    ${records.length ? `<div class="track-table" style="margin-top:12px">${records.slice().reverse().slice(0, 100).map((record, index) => `<div class="track-row"><span class="track-index">${String(index + 1).padStart(2, "0")}</span><div><div class="track-title">${escapeHtml(record.title)}</div><div class="track-subtitle">${escapeHtml(record.creator?.name || "")}${record.format === "mp3" ? ` · MP3 ${record.bitrate} kbps` : " · 原始格式"}</div></div><span class="track-duration">${formatBytes(record.size)}</span><div class="track-actions"><span class="cached">✓</span></div></div>`).join("")}</div>` : '<div class="download-placeholder" style="margin-top:12px"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}
+    ${locations.length ? `<div class="track-table" style="margin-top:12px">${locations.slice().reverse().slice(0, 200).map((record, index) => `<div class="track-row"><span class="track-index">${String(index + 1).padStart(2, "0")}</span><div><div class="track-title">${escapeHtml(record.title)}</div><div class="track-subtitle">${escapeHtml(record.scope?.title || record.creator?.name || "未分类归档")}${record.format === "mp3" ? ` · MP3 ${record.bitrate} kbps` : " · 原始格式"}</div></div><span class="track-duration">${formatBytes(record.size)}</span><div class="track-actions"><span class="cached">✓</span></div></div>`).join("")}</div>` : '<div class="download-placeholder" style="margin-top:12px"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}
   </section>`;
 }
 
@@ -276,12 +284,26 @@ function playlistCards() {
 
 function playlistDetail(playlist) {
   const tracks = playlist.items.map(playlistItemToTrack);
+  const format = ui.app.settings.defaultFormat;
+  const bitrate = format === "mp3" ? ui.app.settings.mp3Bitrate : null;
+  const coverage = cacheCoverageForTracks(tracks, ui.cacheInfo?.records ?? [], {
+    scopeKey: `playlist:${playlist.id}`,
+    format,
+    bitrate
+  });
+  const records = new Map((ui.cacheInfo?.records ?? []).map(record => [record.trackId, record]));
   return `<section>
     <button class="ghost-button" type="button" data-action="close-playlist">${symbol("←")}返回我的播放列表</button>
     ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
     ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}
-    <div class="page-heading playlist-heading"><div><h1>${escapeHtml(playlist.name)}</h1><p>${playlist.items.length} 个作品 · ${formatDuration(playlistTotalDuration(playlist))} · 更新于 ${formatDate(Math.floor(playlist.updatedAt / 1000))}</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="rename-playlist" data-id="${escapeHtml(playlist.id)}">重命名</button><button class="ghost-button danger-button" type="button" data-action="delete-playlist" data-id="${escapeHtml(playlist.id)}">删除</button><button class="primary-button" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}" ${tracks.length ? "" : "disabled"}>${symbol("▶")}播放全部</button></div></div>
-    <div class="track-table"><div class="track-table-head playlist-table-head"><span>#</span><span>作品</span><span>UP 主</span><span>时长</span><span></span></div>${tracks.length ? tracks.map((track, index) => `<div class="playlist-track-row" draggable="true" data-drag-kind="playlist" data-playlist-id="${escapeHtml(playlist.id)}" data-index="${index}"><span class="track-index drag-handle" title="拖动调整顺序">${String(index + 1).padStart(2, "0")}</span><button class="playlist-track-title" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}" data-index="${index}"><strong>${escapeHtml(track.title)}</strong><small>${escapeHtml(track.bvid)}</small></button><span class="playlist-creator">${escapeHtml(track.creator?.name || "未知UP主")}</span><span class="track-duration">${formatDuration(track.duration)}</span><div class="track-actions"><button class="icon-button" type="button" data-action="enqueue-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" aria-label="添加到当前队列">${symbol("+")}</button><button class="icon-button" type="button" data-action="move-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" data-to="${index - 1}" aria-label="上移" ${index === 0 ? "disabled" : ""}>${symbol("↑")}</button><button class="icon-button" type="button" data-action="move-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" data-to="${index + 1}" aria-label="下移" ${index === tracks.length - 1 ? "disabled" : ""}>${symbol("↓")}</button><button class="icon-button danger-button" type="button" data-action="remove-playlist-track" data-id="${escapeHtml(playlist.id)}" data-bvid="${escapeHtml(track.bvid)}" aria-label="从播放列表移除">${symbol("×")}</button></div></div>`).join("") : '<div class="queue-empty">这个播放列表还没有作品。</div>'}</div>
+    <div class="page-heading playlist-heading"><div><h1>${escapeHtml(playlist.name)}</h1><p>${playlist.items.length} 个作品 · ${formatDuration(playlistTotalDuration(playlist))} · 当前列表归档 ${coverage.archivedCount}/${coverage.total} · 本地可用 ${coverage.availableCount}/${coverage.total}</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="rename-playlist" data-id="${escapeHtml(playlist.id)}">重命名</button><button class="ghost-button danger-button" type="button" data-action="delete-playlist" data-id="${escapeHtml(playlist.id)}">删除</button><button class="plain-button" type="button" data-action="cache-playlist" data-id="${escapeHtml(playlist.id)}" ${tracks.length ? "" : "disabled"}>${symbol("⇩")}缓存到列表目录</button><button class="primary-button" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}" ${tracks.length ? "" : "disabled"}>${symbol("▶")}播放全部</button></div></div>
+    <div class="track-table"><div class="track-table-head playlist-table-head"><span>#</span><span>作品</span><span>UP 主</span><span>时长</span><span></span></div>${tracks.length ? tracks.map((track, index) => {
+      const record = records.get(track.bvid);
+      const inArchive = record?.locations?.some(location => location.scope?.key === `playlist:${playlist.id}`);
+      const local = Boolean(record?.locations?.length);
+      const cacheLabel = inArchive ? "已归档到当前列表" : local ? "其他本地归档可用" : "仅在线";
+      return `<div class="playlist-track-row" draggable="true" data-drag-kind="playlist" data-playlist-id="${escapeHtml(playlist.id)}" data-index="${index}"><span class="track-index drag-handle" title="拖动调整顺序">${String(index + 1).padStart(2, "0")}</span><button class="playlist-track-title" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}" data-index="${index}"><strong>${escapeHtml(track.title)}</strong><small>${escapeHtml(track.bvid)} · ${cacheLabel}</small></button><span class="playlist-creator">${escapeHtml(track.creator?.name || "未知UP主")}</span><span class="track-duration">${formatDuration(track.duration)}</span><div class="track-actions"><button class="icon-button" type="button" data-action="enqueue-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" aria-label="添加到当前队列">${symbol("+")}</button><button class="icon-button" type="button" data-action="move-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" data-to="${index - 1}" aria-label="上移" ${index === 0 ? "disabled" : ""}>${symbol("↑")}</button><button class="icon-button" type="button" data-action="move-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" data-to="${index + 1}" aria-label="下移" ${index === tracks.length - 1 ? "disabled" : ""}>${symbol("↓")}</button><button class="icon-button danger-button" type="button" data-action="remove-playlist-track" data-id="${escapeHtml(playlist.id)}" data-bvid="${escapeHtml(track.bvid)}" aria-label="从播放列表移除">${symbol("×")}</button></div></div>`;
+    }).join("") : '<div class="queue-empty">这个播放列表还没有作品。</div>'}</div>
   </section>`;
 }
 
@@ -304,7 +326,7 @@ function cacheHistorySymbol(status) {
 function cacheHistoryText(task) {
   if (task.status === "failed") return task.message ? `失败：${task.message}` : "失败";
   if (task.status === "skipped") return "已存在，已跳过";
-  return "已完成";
+  return task.message || "已完成";
 }
 
 function cacheTaskRow(task, marker, statusText) {
@@ -324,6 +346,7 @@ function cacheStatusText(activity) {
   if (activity.status === "completed") return "缓存完成";
   if (activity.status === "skipped") return "已经缓存";
   if (activity.status === "decoding") return "正在解码原始音频";
+  if (activity.status === "copying") return escapeHtml(activity.message || "正在从其他本地归档复制");
   if (activity.status === "encoding") return `正在转换 MP3 · ${Math.round((activity.progress || 0) * 100)}%`;
   if (activity.status === "downloading") return activity.total
     ? `${Math.round((activity.progress || 0) * 100)}%（${formatBytes(activity.received)} / ${formatBytes(activity.total)}）`
@@ -652,6 +675,23 @@ async function cacheTracks(tracks, section) {
   render();
 }
 
+async function cachePlaylistArchive(playlist) {
+  const tracks = playlist.items.map(playlistItemToTrack);
+  if (!tracks.length) throw new Error("播放列表没有可缓存的作品");
+  await send(MESSAGE.cacheCommand, {
+    command: "cacheTracks",
+    payload: {
+      tracks,
+      section: { id: playlist.id, type: "playlist", title: playlist.name },
+      format: ui.app.settings.defaultFormat,
+      bitrate: ui.app.settings.mp3Bitrate
+    }
+  });
+  ui.notice = `“${playlist.name}”的 ${tracks.length} 个作品已加入列表归档队列；已有其他本地副本时会优先复制。`;
+  await refreshCacheInfo();
+  render();
+}
+
 async function cacheWholeSection(section) {
   ui.notice = `正在读取“${section.title}”的全部作品……`;
   render();
@@ -878,6 +918,11 @@ root.addEventListener("click", async event => {
       const playlist = ui.app.playlists.find(item => item.id === button.dataset.id);
       const queue = playlist.items.map(playlistItemToTrack);
       await playerCommand("playQueue", { queue, index: Number(button.dataset.index) || 0, queueContext: { kind: "playlist", id: playlist.id, title: `我的播放列表 · ${playlist.name}` } });
+    }
+    else if (action === "cache-playlist") {
+      const playlist = ui.app.playlists.find(item => item.id === button.dataset.id);
+      if (!playlist) throw new Error("播放列表不存在");
+      await cachePlaylistArchive(playlist);
     }
     else if (action === "enqueue-playlist-track") {
       const playlist = ui.app.playlists.find(item => item.id === button.dataset.id);

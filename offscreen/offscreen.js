@@ -18,6 +18,11 @@ import { addCacheHistory, summarizeCacheTask } from "../services/cache-queue-sta
 import { audioStreamCandidates, mediaErrorText, mediaSourceType } from "../services/audio-stream.js";
 import { cachedPlaybackSource, onlinePlaybackSource } from "../services/playback-source.js";
 import { insertQueueItems, removeQueueItem, reorderQueue } from "../services/play-queue.js";
+import {
+  ARCHIVE_MANIFEST_FILENAME,
+  buildArchiveManifest,
+  parseArchiveManifest
+} from "../services/archive-manifest.js";
 
 const audio = document.getElementById("audio");
 let state = { ...DEFAULT_PLAYER };
@@ -303,6 +308,45 @@ function extensionForStream(stream) {
   return "m4a";
 }
 
+function archiveDirectoryParts(task, creator) {
+  if (task.section?.type === "playlist") {
+    const shortId = safeFilePart(String(task.section.id || "list").slice(0, 8));
+    return ["我的播放列表", `${safeFilePart(task.section.title || "未命名播放列表")} [${shortId}]`];
+  }
+  const creatorFolder = `${safeFilePart(creator.name || "未知UP主")}_${safeFilePart(creator.id || "unknown")}`;
+  const typeFolder = task.section?.type === "season" ? "合集" : task.section?.type === "series" ? "系列" : "全部作品";
+  return task.section?.type === "all"
+    ? [creatorFolder, typeFolder]
+    : [creatorFolder, typeFolder, safeFilePart(task.section?.title || task.track.sectionTitle)];
+}
+
+function extensionForLocation(location) {
+  if (location?.format === "mp3") return "mp3";
+  const extension = String(location?.path?.at(-1) || "").split(".").at(-1).toLowerCase();
+  return ["m4a", "webm"].includes(extension) ? extension : "m4a";
+}
+
+async function updatePlaylistArchiveManifest(root, task, location) {
+  if (task.section?.type !== "playlist") return;
+  const directory = await getOrCreateDirectory(root, location.path.slice(0, -1));
+  const handle = await directory.getFileHandle(ARCHIVE_MANIFEST_FILENAME, { create: true });
+  let existing = null;
+  try {
+    const file = await handle.getFile();
+    if (file.size) existing = parseArchiveManifest(await file.text());
+  } catch {}
+  const manifest = buildArchiveManifest(location.scope, task.archiveItems, existing, {
+    bvid: task.track.bvid || task.track.id,
+    filename: location.path.at(-1),
+    format: location.format,
+    bitrate: location.bitrate,
+    size: location.size
+  });
+  const writable = await handle.createWritable();
+  await writable.write(`${JSON.stringify(manifest, null, 2)}\n`);
+  await writable.close();
+}
+
 async function fetchAudio(stream, track, writable = null) {
   const response = await fetchStreamResponse(stream);
 
@@ -366,18 +410,20 @@ async function downloadTrack(task, getRoot) {
     bitrate: task.bitrate
   }) : null;
   if (target) {
+    const root = await getRoot();
+    await updatePlaylistArchiveManifest(root, task, target.location);
     await reportCache({ track: task.track, status: "skipped", message: "文件已经缓存" });
     return existing;
   }
 
   const root = await getRoot();
-  const stream = await sendToBackground({ type: MESSAGE.resolveAudio, track: task.track });
-  const extension = task.format === "mp3" ? "mp3" : extensionForStream(stream);
-  const creatorFolder = `${safeFilePart(creator.name || "未知UP主")}_${safeFilePart(creator.id || "unknown")}`;
-  const typeFolder = task.section?.type === "season" ? "合集" : task.section?.type === "series" ? "系列" : "全部作品";
-  const parts = task.section?.type === "all"
-    ? [creatorFolder, typeFolder]
-    : [creatorFolder, typeFolder, safeFilePart(task.section?.title || task.track.sectionTitle)];
+  const localSource = existing ? await findCachedFile(existing, {
+    format: task.format,
+    bitrate: task.bitrate
+  }) : null;
+  const stream = localSource ? null : await sendToBackground({ type: MESSAGE.resolveAudio, track: task.track });
+  const extension = task.format === "mp3" ? "mp3" : localSource ? extensionForLocation(localSource.location) : extensionForStream(stream);
+  const parts = archiveDirectoryParts(task, creator);
   const directory = await getOrCreateDirectory(root, parts);
   const prefix = Number.isFinite(task.position) ? `${String(task.position + 1).padStart(3, "0")} - ` : "";
   const identity = task.track.bvid ? ` [${safeFilePart(task.track.bvid)}]` : "";
@@ -387,7 +433,16 @@ async function downloadTrack(task, getRoot) {
 
   let output;
   try {
-    if (task.format === "mp3") {
+    if (localSource) {
+      await reportCache({
+        track: task.track,
+        status: "copying",
+        progress: null,
+        message: `正在从“${localSource.location.scope?.title || "其他本地归档"}”复制`
+      });
+      await writable.write(localSource.file);
+      output = { size: localSource.file.size };
+    } else if (task.format === "mp3") {
       const source = await fetchAudio(stream, task.track);
       output = await transcodeToMp3(source.blob, task);
       await writable.write(output);
@@ -406,8 +461,8 @@ async function downloadTrack(task, getRoot) {
     path: [...parts, filename],
     format: task.format,
     bitrate: task.format === "mp3" ? task.bitrate : null,
-    mimeType: task.format === "mp3" ? "audio/mpeg" : stream.mimeType,
-    codec: task.format === "mp3" ? "mp3" : stream.codec,
+    mimeType: task.format === "mp3" ? "audio/mpeg" : localSource?.location.mimeType || stream.mimeType,
+    codec: task.format === "mp3" ? "mp3" : localSource?.location.codec || stream.codec,
     size: output.size,
     cachedAt: Date.now(),
     verifiedAt: Date.now()
@@ -420,7 +475,13 @@ async function downloadTrack(task, getRoot) {
     locations: [location]
   };
   const saved = await putCacheRecord(record);
-  await reportCache({ track: task.track, status: "completed", record: { ...record, ...location } });
+  await updatePlaylistArchiveManifest(root, task, location);
+  await reportCache({
+    track: task.track,
+    status: "completed",
+    message: localSource ? "已从其他本地归档复制" : "已从线上缓存",
+    record: { ...record, ...location }
+  });
   return saved;
 }
 
@@ -467,7 +528,14 @@ async function handleCacheCommand(command, payload = {}) {
     };
     const known = new Set([...cacheQueue, currentCacheTask].filter(Boolean).map(taskKey));
     (payload.tracks ?? []).forEach((track, position) => {
-      const task = { track, section: payload.section, position, format, bitrate };
+      const task = {
+        track,
+        section: payload.section,
+        position,
+        format,
+        bitrate,
+        archiveItems: payload.section?.type === "playlist" ? payload.tracks : null
+      };
       const key = taskKey(task);
       if (!known.has(key)) {
         cacheQueue.push(task);

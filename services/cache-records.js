@@ -119,3 +119,19 @@ export function removeCacheLocation(record, locationId) {
 export function cacheRecordBytes(record) {
   return (normalizeCacheRecord(record)?.locations ?? []).reduce((sum, location) => sum + location.size, 0);
 }
+
+export function cacheCoverageForTracks(tracks, records, { scopeKey = "", format = "", bitrate = null } = {}) {
+  const byTrack = new Map((records ?? []).map(record => {
+    const normalized = normalizeCacheRecord(record);
+    return [normalized?.trackId, normalized];
+  }).filter(([trackId]) => trackId));
+  let availableCount = 0;
+  let archivedCount = 0;
+  for (const track of tracks ?? []) {
+    const trackId = String(track?.id ?? track?.bvid ?? "");
+    const locations = byTrack.get(trackId)?.locations ?? [];
+    if (locations.length) availableCount += 1;
+    if (locations.some(location => locationMatches(location, { scopeKey, format, bitrate }))) archivedCount += 1;
+  }
+  return { total: tracks?.length ?? 0, availableCount, archivedCount };
+}
