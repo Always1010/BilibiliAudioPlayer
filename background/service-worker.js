@@ -185,7 +185,12 @@ async function checkAllCreators() {
               await chrome.runtime.sendMessage({
                 type: MESSAGE.cacheCommand,
                 command: "cacheTracks",
-                payload: { tracks, section: subscription.section },
+                payload: {
+                  tracks,
+                  section: subscription.section,
+                  format: state.settings.defaultFormat,
+                  bitrate: state.settings.mp3Bitrate
+                },
                 target: "offscreen"
               });
               accepted = true;

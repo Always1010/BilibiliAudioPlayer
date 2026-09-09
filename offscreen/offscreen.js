@@ -9,6 +9,7 @@ import {
   requireWritableDirectory,
   safeFilePart
 } from "../services/file-store.js";
+import { encodeAudioBufferToMp3, normalizeMp3Bitrate } from "../services/mp3.js";
 
 const audio = document.getElementById("audio");
 let state = { ...DEFAULT_PLAYER };
@@ -114,16 +115,75 @@ function extensionForStream(stream) {
   return "m4a";
 }
 
+async function fetchAudio(stream, track, writable = null) {
+  const response = await fetch(stream.url, {
+    credentials: "include",
+    referrer: "https://www.bilibili.com/"
+  });
+  if (!response.ok || !response.body) throw new Error(`音频下载失败（HTTP ${response.status}）`);
+
+  const total = Number(response.headers.get("content-length")) || 0;
+  const reader = response.body.getReader();
+  const chunks = writable ? null : [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (writable) await writable.write(value);
+    else chunks.push(value);
+    received += value.byteLength;
+    await reportCache({
+      track,
+      status: "downloading",
+      received,
+      total,
+      progress: total ? received / total : null
+    });
+  }
+  return {
+    blob: chunks ? new Blob(chunks, { type: stream.mimeType }) : null,
+    size: received
+  };
+}
+
+async function transcodeToMp3(sourceBlob, task) {
+  const AudioContextClass = globalThis.AudioContext ?? globalThis.webkitAudioContext;
+  if (!AudioContextClass) throw new Error("当前浏览器无法解码音频，请升级到最新版 Edge 或 Chrome");
+  await reportCache({ track: task.track, status: "decoding", progress: null });
+  const context = new AudioContextClass({ sampleRate: 48000 });
+  let decoded;
+  try {
+    decoded = await context.decodeAudioData(await sourceBlob.arrayBuffer());
+  } finally {
+    await context.close().catch(() => {});
+  }
+
+  await reportCache({ track: task.track, status: "encoding", progress: 0 });
+  let lastReportedPercent = 0;
+  const progressReports = [];
+  const output = await encodeAudioBufferToMp3(decoded, task.bitrate, progress => {
+    const percent = Math.floor(progress * 100);
+    if (percent === lastReportedPercent || (percent < 100 && percent % 5 !== 0)) return;
+    lastReportedPercent = percent;
+    progressReports.push(reportCache({ track: task.track, status: "encoding", progress }));
+  });
+  await Promise.allSettled(progressReports);
+  return output;
+}
+
 async function downloadTrack(task) {
   const existing = await getCacheRecord(task.track.id);
-  if (existing && await getCachedFile(existing)) {
+  const existingFormat = existing?.format ?? "original";
+  const sameEncoding = existingFormat === task.format
+    && (task.format !== "mp3" || Number(existing.bitrate) === task.bitrate);
+  if (existing && sameEncoding && await getCachedFile(existing)) {
     await reportCache({ track: task.track, status: "skipped", message: "文件已经缓存" });
     return existing;
   }
 
   const root = await requireWritableDirectory();
   const stream = await sendToBackground({ type: MESSAGE.resolveAudio, track: task.track });
-  const extension = extensionForStream(stream);
+  const extension = task.format === "mp3" ? "mp3" : extensionForStream(stream);
   const creator = task.track.creator ?? {};
   const creatorFolder = `${safeFilePart(creator.name || "未知UP主")}_${safeFilePart(creator.id || "unknown")}`;
   const typeFolder = task.section?.type === "season" ? "合集" : task.section?.type === "series" ? "系列" : "全部作品";
@@ -137,31 +197,14 @@ async function downloadTrack(task) {
   const fileHandle = await directory.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
 
-  const response = await fetch(stream.url, {
-    credentials: "include",
-    referrer: "https://www.bilibili.com/"
-  });
-  if (!response.ok || !response.body) {
-    await writable.abort();
-    throw new Error(`音频下载失败（HTTP ${response.status}）`);
-  }
-
-  const total = Number(response.headers.get("content-length")) || 0;
-  const reader = response.body.getReader();
-  let received = 0;
+  let output;
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      await writable.write(value);
-      received += value.byteLength;
-      await reportCache({
-        track: task.track,
-        status: "downloading",
-        received,
-        total,
-        progress: total ? received / total : null
-      });
+    if (task.format === "mp3") {
+      const source = await fetchAudio(stream, task.track);
+      output = await transcodeToMp3(source.blob, task);
+      await writable.write(output);
+    } else {
+      output = await fetchAudio(stream, task.track, writable);
     }
     await writable.close();
   } catch (error) {
@@ -176,9 +219,11 @@ async function downloadTrack(task) {
     creator,
     section: task.section,
     path: [...parts, filename],
-    mimeType: stream.mimeType,
-    codec: stream.codec,
-    size: received,
+    format: task.format,
+    bitrate: task.format === "mp3" ? task.bitrate : null,
+    mimeType: task.format === "mp3" ? "audio/mpeg" : stream.mimeType,
+    codec: task.format === "mp3" ? "mp3" : stream.codec,
+    size: output.size,
     cachedAt: Date.now()
   };
   await putCacheRecord(record);
@@ -208,14 +253,16 @@ async function handleCacheCommand(command, payload = {}) {
     return { directory, records, running: cacheRunning, queued: cacheQueue.length };
   }
   if (command === "cacheTracks") {
-    const known = new Set([
-      ...cacheQueue.map(item => String(item.track.id)),
-      ...(await listCacheRecords()).map(item => String(item.trackId))
-    ]);
+    const format = payload.format === "mp3" ? "mp3" : "original";
+    const bitrate = normalizeMp3Bitrate(payload.bitrate);
+    const known = new Set(cacheQueue.map(item =>
+      `${item.track.id}:${item.format}:${item.format === "mp3" ? item.bitrate : "source"}`
+    ));
     (payload.tracks ?? []).forEach((track, position) => {
-      if (!known.has(String(track.id))) {
-        cacheQueue.push({ track, section: payload.section, position });
-        known.add(String(track.id));
+      const key = `${track.id}:${format}:${format === "mp3" ? bitrate : "source"}`;
+      if (!known.has(key)) {
+        cacheQueue.push({ track, section: payload.section, position, format, bitrate });
+        known.add(key);
       }
     });
     processCacheQueue().catch(error => reportCache({ status: "failed", message: error.message }));
