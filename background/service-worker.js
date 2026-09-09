@@ -29,6 +29,7 @@ import {
 } from "../services/playlists.js";
 import { repairPlaylistDurations } from "../services/playlists.js";
 import { mergeImportedPlaylists } from "../services/playlist-transfer.js";
+import { favoriteSectionMetadata } from "../services/favorite-section-metadata.js";
 import {
   addFavoriteSection,
   normalizeFavoriteSections,
@@ -301,6 +302,33 @@ async function handleFavoriteSectionCommand(command, payload = {}) {
   if (command === "list") {
     const stored = await chrome.storage.local.get(STORAGE_KEYS.favoriteSections);
     return normalizeFavoriteSections(stored[STORAGE_KEYS.favoriteSections]);
+  }
+  if (command === "hydrateMetadata") {
+    const stored = await chrome.storage.local.get(STORAGE_KEYS.favoriteSections);
+    const favorites = normalizeFavoriteSections(stored[STORAGE_KEYS.favoriteSections]);
+    const requestedKeys = new Set((payload.keys ?? []).map(String));
+    const requested = requestedKeys.size ? favorites.filter(item => requestedKeys.has(item.key)) : favorites;
+    const groups = new Map();
+    requested.forEach(favorite => {
+      const list = groups.get(favorite.creatorId) ?? [];
+      list.push(favorite);
+      groups.set(favorite.creatorId, list);
+    });
+    const entries = await Promise.allSettled([...groups.keys()].map(async creatorId => [
+      creatorId,
+      await listAllCreatorContainers(creatorId)
+    ]));
+    const containersByCreator = {};
+    const failedCreatorIds = [];
+    entries.forEach((entry, index) => {
+      const creatorId = [...groups.keys()][index];
+      if (entry.status === "fulfilled") containersByCreator[creatorId] = entry.value[1];
+      else failedCreatorIds.push(creatorId);
+    });
+    return {
+      items: favoriteSectionMetadata(requested, containersByCreator),
+      failedCreatorIds
+    };
   }
   return updateStorageValue(STORAGE_KEYS.favoriteSections, current => {
     if (command === "add") return addFavoriteSection(current, payload.section);

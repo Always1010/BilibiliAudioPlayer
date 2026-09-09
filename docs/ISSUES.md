@@ -425,3 +425,13 @@
 - 解决方案：收藏模型仅保留收藏键、UP 主 UID/名称、栏目类型/ID、栏目名称和收藏时间；删除作品数持久化字段。扩展启动时自动规范化历史记录并移除旧字段，新旧收藏都无需用户重新操作。
 - 验证方式：更新收藏数据层测试，确认作品数不会进入新记录或元数据更新后的记录；执行全部 Node 测试、JavaScript 语法检查、Manifest 0.8.0 JSON 检查与 `git diff --check`。
 - 相关文件：`services/favorite-sections.js`、`tests/favorite-sections.test.mjs`、`shared/storage.js`、`ui/app.js`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-041：收藏页与收藏详情缺少栏目真实封面
+
+- 日期：2026-09-09
+- 状态：已解决
+- 现象：收藏的合集和系列在收藏页显示红色星标占位，进入详情页后仍无封面；同一栏目在 UP 主主页却可正常显示封面。
+- 原因：收藏记录只提供栏目定位信息，且首版未在收藏页请求栏目元信息。详情页请求的是栏目作品列表接口，该接口返回作品而不返回合集/系列封面，因此无法从作品列表补出栏目头图。
+- 解决方案：新增仅在运行时存在的栏目元信息合并层。进入收藏页时按 UP 主 UID 在线读取合集/系列清单，将匹配到的封面、最新名称和作品数写入页面内存；打开收藏详情前复用同一在线读取结果，构建带封面的详情头部。封面和作品数不会写回收藏存储；已有收藏会自动补齐。读取失败时保留本地名称和收藏项，显示作品数待刷新与在线刷新提示。
+- 验证方式：新增在线栏目元信息合并测试，覆盖合集、系列封面/作品数、标题刷新以及离线回退；执行全部 Node 测试、JavaScript 语法检查、Manifest 0.8.1 JSON 检查与 `git diff --check`；浏览器中打开收藏页和任意收藏详情，确认与 UP 主主页使用相同栏目封面。
+- 相关文件：`services/favorite-section-metadata.js`、`tests/favorite-section-metadata.test.mjs`、`background/service-worker.js`、`ui/app.js`、`manifest.json`、`README.md`、`docs/ISSUES.md`
