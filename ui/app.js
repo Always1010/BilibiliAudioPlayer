@@ -121,12 +121,27 @@ function showCacheToast(message, snapshot = ui.cacheInfo) {
 
 function cacheToastMarkup() {
   if (!ui.cacheToast) return "";
-  return `<div class="cache-toast" role="status" aria-live="polite"><span class="cache-toast-icon">${symbol("⇩")}</span><div><strong>${escapeHtml(ui.cacheToast.message)}</strong><small>当前队列 ${ui.cacheToast.count} 项</small></div><button class="cache-toast-link" type="button" data-action="open-cache-queue">查看队列</button><button class="cache-toast-close" type="button" data-action="dismiss-cache-toast" aria-label="关闭缓存提示">${symbol("×")}</button></div>`;
+  return `<div class="cache-toast" role="status" aria-live="polite"><span class="cache-toast-icon">${symbol("⇩")}</span><div><strong data-role="cache-toast-message">${escapeHtml(ui.cacheToast.message)}</strong><small data-role="cache-toast-count">当前队列 ${ui.cacheToast.count} 项</small></div><button class="cache-toast-link" type="button" data-action="open-cache-queue">查看队列</button><button class="cache-toast-close" type="button" data-action="dismiss-cache-toast" aria-label="关闭缓存提示">${symbol("×")}</button></div>`;
 }
 
 function renderCacheToast() {
   const host = root.querySelector(".cache-toast-host");
-  if (host) host.innerHTML = cacheToastMarkup();
+  if (!host) return;
+  const toast = host.querySelector(".cache-toast");
+  if (!ui.cacheToast) {
+    if (toast) toast.remove();
+    return;
+  }
+  if (!toast) {
+    host.innerHTML = cacheToastMarkup();
+    applyIconTooltips(host);
+    return;
+  }
+  const message = toast.querySelector('[data-role="cache-toast-message"]');
+  const count = toast.querySelector('[data-role="cache-toast-count"]');
+  if (message && message.textContent !== ui.cacheToast.message) message.textContent = ui.cacheToast.message;
+  const countText = `当前队列 ${ui.cacheToast.count} 项`;
+  if (count && count.textContent !== countText) count.textContent = countText;
 }
 
 function topbar() {
