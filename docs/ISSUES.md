@@ -117,3 +117,13 @@
 - 安全边界：规则只匹配当前扩展 ID 发起的 `fetch`/XHR 请求，不修改用户普通网页的网络请求；没有修改 Origin，也没有绕过账号、会员、区域或版权权限判断。
 - 验证方式：对三个公开作品的主地址及备用地址执行仅读取响应头的对照测试。严格节点在普通请求及仅带 Range 时均返回 403，带哔哩哔哩 Referer 时返回 200/206；主节点保持 200。新增自动化测试验证规则限定扩展来源、三个 CDN 根域、XHR 类型及唯一 Referer 修改，并执行全部测试、JavaScript 语法检查、Manifest JSON 检查和 `git diff --check`。
 - 相关文件：`manifest.json`、`services/cdn-request-rules.js`、`background/service-worker.js`、`offscreen/offscreen.js`、`tests/cdn-request-rules.test.mjs`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-011：全部作品继续加载时请求错误
+
+- 日期：2026-09-09
+- 状态：已解决
+- 现象：进入“全部作品”详情时只能看到初始的 30 条作品，点击“继续加载”后显示请求错误。
+- 原因：“全部作品”主页缓存首次读取 30 条；进入详情及继续加载时，界面却向 `/x/space/wbi/arc/search` 投稿接口传入 `pageSize=100`。该接口的可靠单页上限为 50，超限请求会被接口拒绝；详情首次请求失败后又回退显示主页的 30 条缓存，因此形成“30 条可以显示、继续加载报错”的表象。合集与系列使用的是不同接口，不能共用同一个 100 条分页参数。
+- 解决方案：详情页根据栏目类型选择分页大小，“全部作品”固定每页 50 条，合集与系列保留每页 100 条；接口适配层同时把全部投稿的页码规范为不小于 1、单页数量限制在 1–50，防止其他调用方再次传入非法分页参数。后续页继续按页码合并并按作品 ID 去重。
+- 验证方式：新增自动化测试模拟 WBI 密钥和投稿接口，确认传入第 0 页会规范为第 1 页，传入 100 条会限制为 50 条，且第 2 页请求保持 `pn=2&ps=50` 并正确返回和标记分页；执行全部测试、JavaScript 语法检查与 `git diff --check`。
+- 相关文件：`services/bilibili.js`、`ui/app.js`、`tests/bilibili-videos.test.mjs`、`docs/ISSUES.md`

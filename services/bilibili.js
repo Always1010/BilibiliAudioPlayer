@@ -114,12 +114,14 @@ export async function searchCreators(keyword, page = 1) {
 }
 
 export async function listCreatorVideos(mid, page = 1, pageSize = 30) {
+  const safePage = Math.max(1, Math.floor(Number(page) || 1));
+  const safePageSize = Math.max(1, Math.min(50, Math.floor(Number(pageSize) || 30)));
   const data = await fetchJson("/x/space/wbi/arc/search", {
     wbi: true,
     params: {
       mid,
-      pn: page,
-      ps: pageSize,
+      pn: safePage,
+      ps: safePageSize,
       order: "pubdate",
       order_avoided: true,
       platform: "web",
@@ -129,8 +131,8 @@ export async function listCreatorVideos(mid, page = 1, pageSize = 30) {
   const list = data?.list?.vlist ?? [];
   return {
     items: list.map(normalizeVideo),
-    page,
-    pageSize,
+    page: safePage,
+    pageSize: safePageSize,
     total: Number(data?.page?.count ?? list.length)
   };
 }

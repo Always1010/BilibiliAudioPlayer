@@ -376,7 +376,7 @@ async function openSection(key) {
       creatorId: activeCreator().id,
       section: { id: section.id, type: section.type },
       page: 1,
-      pageSize: 100
+      pageSize: section.type === "all" ? 50 : 100
     });
   } catch (error) {
     ui.error = toErrorMessage(error);
@@ -397,7 +397,7 @@ async function loadMoreDetail() {
       creatorId: activeCreator().id,
       section: { id: section.id, type: section.type },
       page: nextPage,
-      pageSize: 100
+      pageSize: section.type === "all" ? 50 : 100
     });
     const existing = ui.detailData?.items ?? [];
     const known = new Set(existing.map(item => String(item.id)));
