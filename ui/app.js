@@ -15,6 +15,7 @@ const ui = {
   detailData: null,
   detailPage: 1,
   trackSearchKeyword: "",
+  queueOpen: false,
   expanded: new Set(["all"]),
   searchResults: [],
   searchKeyword: "",
@@ -134,7 +135,7 @@ function trackRows(items, section, limit = null) {
     <span class="track-index">${track.id === currentId && ui.app.player.playing ? "♫" : String(index + 1).padStart(2, "0")}</span>
     <div><div class="track-title">${escapeHtml(track.title)}</div><div class="track-subtitle">${track.bvid ? escapeHtml(track.bvid) : "视频作品"}${track.publishedAt ? ` · ${formatDate(track.publishedAt)}` : ""}</div></div>
     <span class="track-duration">${formatDuration(track.duration)}</span>
-    <div class="track-actions"><button class="icon-button" type="button" data-action="play-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="播放 ${escapeHtml(track.title)}">${symbol(track.id === currentId && ui.app.player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button ${cached.has(String(track.id)) ? "cached" : ""}" type="button" data-action="cache-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="${cached.has(String(track.id)) ? "已缓存" : "缓存"} ${escapeHtml(track.title)}">${symbol(cached.has(String(track.id)) ? "✓" : "⇩")}</button></div>
+    <div class="track-actions"><button class="icon-button" type="button" data-action="play-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="播放 ${escapeHtml(track.title)}">${symbol(track.id === currentId && ui.app.player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="enqueue-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="将 ${escapeHtml(track.title)} 添加到播放队列">${symbol("+")}</button><button class="icon-button ${cached.has(String(track.id)) ? "cached" : ""}" type="button" data-action="cache-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="${cached.has(String(track.id)) ? "已缓存" : "缓存"} ${escapeHtml(track.title)}">${symbol(cached.has(String(track.id)) ? "✓" : "⇩")}</button></div>
   </div>`).join("");
 }
 
@@ -315,18 +316,41 @@ function playerMarkup() {
   const sourceLabel = playbackSourceLabel(player.source, player.loading);
   return `<footer class="player-bar">
     <div class="now-playing">${image(track?.cover, track?.title ?? "尚未播放", "now-cover")}<div class="now-copy"><div class="now-title">${escapeHtml(track?.title ?? "选择一个作品开始播放")}</div><div class="now-meta"><span class="muted">${escapeHtml(track?.creator?.name ?? "哔哩音频")}</span>${sourceLabel ? `<span class="source-badge ${player.source?.kind === "cache" ? "local" : ""}">${escapeHtml(sourceLabel)}</span>` : ""}${player.error ? `<span class="player-error">${escapeHtml(player.error)}</span>` : ""}</div></div></div>
-    <div class="player-controls"><button class="icon-button" type="button" data-action="change-mode" aria-label="切换播放模式">${symbol(player.mode === "shuffle" ? "⤨" : player.mode === "single" ? "①" : "↻")}</button><button class="icon-button" type="button" data-action="previous" aria-label="上一首">${symbol("◀|")}</button><button class="play-main" type="button" data-action="${player.playing ? "pause" : "resume"}" aria-label="${player.playing ? "暂停" : "播放"}">${symbol(player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="next" aria-label="下一首">${symbol("|▶")}</button></div>
+    <div class="player-controls"><button class="icon-button" type="button" data-action="change-mode" aria-label="切换播放模式">${symbol(player.mode === "shuffle" ? "⤨" : player.mode === "single" ? "①" : "↻")}</button><button class="icon-button" type="button" data-action="previous" aria-label="上一首">${symbol("◀|")}</button><button class="play-main" type="button" data-action="${player.playing ? "pause" : "resume"}" aria-label="${player.playing ? "暂停" : "播放"}">${symbol(player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="next" aria-label="下一首">${symbol("|▶")}</button><button class="queue-toggle ${ui.queueOpen ? "active" : ""}" type="button" data-action="toggle-play-queue" aria-expanded="${ui.queueOpen}" aria-label="查看播放队列">${symbol("☷")}<span>${player.queue?.length ?? 0}</span></button></div>
     <div class="progress-area"><input class="progress-input" type="range" min="0" max="${progressMax}" value="${Math.min(Number(player.currentTime) || 0, progressMax)}" step="1" data-action="seek" aria-label="播放进度"><span class="time-label">${formatDuration(player.currentTime)} / ${formatDuration(progressMax)}</span></div>
   </footer>`;
 }
 
+function playQueueMarkup() {
+  if (!ui.queueOpen) return "";
+  const player = ui.app?.player ?? {};
+  const queue = player.queue ?? [];
+  const currentIndex = Number(player.queueIndex);
+  const title = player.queueContext?.title || "播放队列";
+  return `<section class="play-queue-drawer" aria-label="播放队列">
+    <div class="play-queue-header"><div><h2>${escapeHtml(title)}</h2><p>${queue.length ? `${currentIndex >= 0 ? currentIndex + 1 : 0} / ${queue.length}` : "队列为空"}</p></div><div><button class="ghost-button" type="button" data-action="clear-play-queue" ${queue.length ? "" : "disabled"}>清空</button><button class="icon-button" type="button" data-action="toggle-play-queue" aria-label="关闭播放队列">${symbol("×")}</button></div></div>
+    <div class="play-queue-list">${queue.length ? queue.map((track, index) => `<div class="play-queue-row ${index === currentIndex ? "current" : ""}" data-queue-index="${index}"><button class="queue-track-button" type="button" data-action="play-queue-index" data-index="${index}"><span class="queue-position">${index === currentIndex ? "♫" : index + 1}</span><span><strong>${escapeHtml(track.title)}</strong><small>${escapeHtml(track.creator?.name || "未知UP主")} · ${formatDuration(track.duration)}</small></span></button><div class="queue-row-actions"><button class="icon-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${index - 1}" aria-label="上移" ${index === 0 ? "disabled" : ""}>${symbol("↑")}</button><button class="icon-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${index + 1}" aria-label="下移" ${index === queue.length - 1 ? "disabled" : ""}>${symbol("↓")}</button>${index !== currentIndex && index !== currentIndex + 1 ? `<button class="queue-next-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${Math.min(currentIndex + 1, queue.length - 1)}">下一首</button>` : ""}<button class="icon-button danger-button" type="button" data-action="remove-queue-item" data-index="${index}" aria-label="移出队列">${symbol("×")}</button></div></div>`).join("") : '<div class="queue-empty">从作品列表点击“+”即可添加到这里。</div>'}</div>
+  </section>`;
+}
+
+function playerAreaMarkup() {
+  return `${playQueueMarkup()}${playerMarkup()}`;
+}
+
 function render() {
-  root.innerHTML = `<div class="shell">${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerMarkup()}</div></div>`;
+  root.innerHTML = `<div class="shell">${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div></div>`;
 }
 
 function renderPlayer() {
   const slot = root.querySelector(".player-slot");
-  if (slot) slot.innerHTML = playerMarkup();
+  if (slot) slot.innerHTML = playerAreaMarkup();
+}
+
+function queueContextForSection(section) {
+  return {
+    kind: section.type,
+    title: `${activeCreator()?.name || "UP 主"} · ${section.title}`
+  };
 }
 
 async function loadActiveCreator(force = false) {
@@ -603,6 +627,15 @@ root.addEventListener("click", async event => {
     else if (action === "show-downloads") { ui.view = "downloads"; render(); }
     else if (action === "show-settings") { ui.view = "settings"; render(); }
     else if (action === "open-full") await send(MESSAGE.openPlayer);
+    else if (action === "toggle-play-queue") {
+      ui.queueOpen = !ui.queueOpen;
+      renderPlayer();
+      if (ui.queueOpen) requestAnimationFrame(() => root.querySelector(".play-queue-row.current")?.scrollIntoView({ block: "nearest" }));
+    }
+    else if (action === "play-queue-index") await playerCommand("playIndex", { index: Number(button.dataset.index) });
+    else if (action === "remove-queue-item") await playerCommand("removeQueueItem", { index: Number(button.dataset.index) });
+    else if (action === "move-queue-item") await playerCommand("reorderQueue", { fromIndex: Number(button.dataset.index), toIndex: Number(button.dataset.to) });
+    else if (action === "clear-play-queue") await playerCommand("clearQueue");
     else if (action === "toggle-section") {
       ui.expanded.has(button.dataset.key) ? ui.expanded.delete(button.dataset.key) : ui.expanded.add(button.dataset.key);
       render();
@@ -643,18 +676,28 @@ root.addEventListener("click", async event => {
       const section = findSection(button.dataset.key);
       const queue = queueForSection(section);
       if (!queue.length) await openSection(section.key);
-      else await playerCommand("playQueue", { queue, index: 0 });
+      else await playerCommand("playQueue", { queue, index: 0, queueContext: queueContextForSection(section) });
     }
     else if (action === "play-detail") {
       const items = ui.detailData?.items ?? ui.activeSection.items ?? [];
-      await playerCommand("playQueue", { queue: queueForSection(ui.activeSection, items), index: 0 });
+      await playerCommand("playQueue", { queue: queueForSection(ui.activeSection, items), index: 0, queueContext: queueContextForSection(ui.activeSection) });
     }
     else if (action === "play-track") {
       const section = findSection(button.dataset.sectionKey) ?? ui.activeSection;
       const items = ui.view === "detail" ? ui.detailData?.items ?? [] : section.items ?? [];
       const queue = queueForSection(section, items);
       const index = Math.max(0, queue.findIndex(track => String(track.id) === String(button.dataset.trackId)));
-      await playerCommand("playQueue", { queue, index });
+      await playerCommand("playQueue", { queue, index, queueContext: queueContextForSection(section) });
+    }
+    else if (action === "enqueue-track") {
+      const section = findSection(button.dataset.sectionKey) ?? ui.activeSection;
+      const source = ui.view === "detail" ? ui.detailData?.items ?? [] : section?.items ?? [];
+      const track = source.find(item => String(item.id) === String(button.dataset.trackId));
+      if (track) {
+        await playerCommand("appendQueue", { tracks: [trackWithContext(track, section)], queueContext: { kind: "manual", title: "手动播放队列" } });
+        ui.notice = `已将“${track.title}”添加到播放队列。`;
+        render();
+      }
     }
     else if (["pause", "resume", "next", "previous"].includes(action)) await playerCommand(action);
     else if (action === "change-mode") {

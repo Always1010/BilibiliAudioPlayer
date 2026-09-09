@@ -14,6 +14,7 @@ import { encodeAudioBufferToMp3, normalizeMp3Bitrate } from "../services/mp3.js"
 import { addCacheHistory, summarizeCacheTask } from "../services/cache-queue-state.js";
 import { audioStreamCandidates, mediaErrorText, mediaSourceType } from "../services/audio-stream.js";
 import { cachedPlaybackSource, onlinePlaybackSource } from "../services/playback-source.js";
+import { insertQueueItems, removeQueueItem, reorderQueue } from "../services/play-queue.js";
 
 const audio = document.getElementById("audio");
 let state = { ...DEFAULT_PLAYER };
@@ -37,6 +38,7 @@ function publicPlayerState(patch = {}) {
   return {
     queue: state.queue,
     queueIndex: state.queueIndex,
+    queueContext: state.queueContext ?? null,
     currentTrack: state.currentTrack,
     playing: !audio.paused && !audio.ended,
     currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : state.currentTime,
@@ -475,6 +477,7 @@ async function move(direction) {
 }
 
 async function handleCommand(command, payload = {}) {
+  let includeQueue = false;
   switch (command) {
     case "hydrate":
       state = { ...state, ...payload.player };
@@ -482,8 +485,55 @@ async function handleCommand(command, payload = {}) {
       return state;
     case "playQueue":
       state.queue = payload.queue ?? [];
+      state.queueContext = payload.queueContext ?? { kind: "manual", title: "播放队列" };
       state.mode = payload.mode ?? state.mode;
       await loadAndPlay(payload.index ?? 0, payload.resumeAt ?? 0);
+      break;
+    case "playIndex":
+      await loadAndPlay(Number(payload.index));
+      break;
+    case "appendQueue":
+      state.queue = insertQueueItems(state.queue, payload.tracks, state.queueIndex, Boolean(payload.playNext));
+      state.queueContext = payload.queueContext ?? state.queueContext ?? { kind: "manual", title: "手动播放队列" };
+      includeQueue = true;
+      break;
+    case "reorderQueue": {
+      const reordered = reorderQueue(state.queue, Number(payload.fromIndex), Number(payload.toIndex), state.queueIndex);
+      state.queue = reordered.queue;
+      state.queueIndex = reordered.currentIndex;
+      includeQueue = true;
+      break;
+    }
+    case "removeQueueItem": {
+      const removed = removeQueueItem(state.queue, Number(payload.index), state.queueIndex);
+      state.queue = removed.queue;
+      state.queueIndex = removed.currentIndex;
+      if (!state.queue.length) {
+        disposeCurrentSource();
+        state.currentTrack = null;
+        state.currentTime = 0;
+        state.duration = 0;
+        state.source = null;
+        state.loading = false;
+        includeQueue = true;
+      } else if (removed.removedCurrent) {
+        await loadAndPlay(state.queueIndex);
+      } else {
+        includeQueue = true;
+      }
+      break;
+    }
+    case "clearQueue":
+      disposeCurrentSource();
+      state.queue = [];
+      state.queueIndex = -1;
+      state.queueContext = null;
+      state.currentTrack = null;
+      state.currentTime = 0;
+      state.duration = 0;
+      state.source = null;
+      state.loading = false;
+      includeQueue = true;
       break;
     case "resume":
       if (!audio.src && state.currentTrack) await loadAndPlay(state.queueIndex, state.currentTime);
@@ -511,7 +561,7 @@ async function handleCommand(command, payload = {}) {
     default:
       throw new Error(`未知播放命令：${command}`);
   }
-  await report();
+  await report({}, includeQueue);
   return publicPlayerState();
 }
 
