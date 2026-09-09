@@ -103,21 +103,23 @@ function waitForAudioReady(label, resumeAt = 0) {
 }
 
 async function fetchStreamResponse(stream, signal) {
-  let lastStatus = null;
+  const failures = [];
   for (const url of audioStreamCandidates(stream)) {
     try {
       const response = await fetch(url, {
         credentials: "include",
-        referrer: stream.bvid ? `https://www.bilibili.com/video/${stream.bvid}/` : "https://www.bilibili.com/",
         signal
       });
       if (response.ok && response.body) return response;
-      lastStatus = response.status;
+      failures.push(`${new URL(url).hostname} HTTP ${response.status}`);
     } catch (error) {
-      if (signal.aborted) throw error;
+      if (signal?.aborted) throw error;
+      failures.push(`${new URL(url).hostname} ${error.message}`);
     }
   }
-  throw new Error(lastStatus ? `CDN 返回 HTTP ${lastStatus}` : "所有 CDN 音频地址均不可访问");
+  throw new Error(failures.length
+    ? `所有 CDN 均不可用（${failures.join("；")}）`
+    : "没有可用的 CDN 音频地址");
 }
 
 function appendToSourceBuffer(sourceBuffer, value, signal) {
@@ -287,11 +289,7 @@ function extensionForStream(stream) {
 }
 
 async function fetchAudio(stream, track, writable = null) {
-  const response = await fetch(stream.url, {
-    credentials: "include",
-    referrer: "https://www.bilibili.com/"
-  });
-  if (!response.ok || !response.body) throw new Error(`音频下载失败（HTTP ${response.status}）`);
+  const response = await fetchStreamResponse(stream);
 
   const total = Number(response.headers.get("content-length")) || 0;
   const reader = response.body.getReader();

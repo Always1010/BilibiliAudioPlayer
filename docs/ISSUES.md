@@ -106,3 +106,14 @@
 - 解决方案：新增 16、32、48、128 像素 PNG 图标，同时配置清单图标、页面 favicon，并将侧边栏顶部和空状态品牌标记统一替换为图标；保留 PowerShell 生成脚本以便后续调整后重新生成资源。
 - 验证方式：新增图标测试，校验清单路径、PNG 签名及每个文件的实际尺寸；重新执行全部 JavaScript 测试、语法检查、清单 JSON 解析和 `git diff --check`。
 - 相关文件：`manifest.json`、`icons/icon16.png`、`icons/icon32.png`、`icons/icon48.png`、`icons/icon128.png`、`scripts/generate-icons.ps1`、`sidepanel.html`、`player.html`、`ui/app.js`、`ui/app.css`、`tests/manifest-icons.test.mjs`、`docs/ISSUES.md`
+
+## ISSUE-010：部分作品的音频 CDN 返回 HTTP 403
+
+- 日期：2026-09-09
+- 状态：已解决
+- 现象：部分作品可以在线播放，另一些作品同时提示“在线播放失败：CDN 返回 HTTP 403；回退加载失败：CDN 返回 HTTP 403”，但对应视频在哔哩哔哩网页中可以正常播放。
+- 原因：不同作品及不同时间会被播放接口分配到不同 CDN 节点。实测同一作品的 `mcdn.bilivideo.cn` 主地址接受无来源请求，而 `edge.mountaintoys.cn` 和 `bilivideo.com` 备用地址会拒绝没有哔哩哔哩来源的请求：普通请求与仅增加 Range 的请求均返回 HTTP 403，增加 `Referer: https://www.bilibili.com/` 后返回 HTTP 200/206。代码原先通过 Fetch 的 `referrer` 选项尝试指定来源，但 Fetch 标准只允许该选项使用与调用方同源的 URL，扩展页面不能据此可靠地伪装成哔哩哔哩页面；清单同时遗漏了当前播放接口实际返回的 `mountaintoys.cn` 备用域名。流式和 Blob 回退共用同一请求条件，因此会一起失败。
+- 解决方案：增加仅作用于本扩展发起请求的 Manifest V3 动态网络规则，在请求 `bilivideo.com`、`bilivideo.cn` 与 `mountaintoys.cn` 音频 CDN 时由浏览器网络层设置哔哩哔哩 Referer；补齐备用 CDN 主机权限，移除不可靠的 Fetch `referrer` 参数。缓存下载改为与在线播放共用主地址和备用地址轮换逻辑，错误信息会列出每个失败节点及其状态。
+- 安全边界：规则只匹配当前扩展 ID 发起的 `fetch`/XHR 请求，不修改用户普通网页的网络请求；没有修改 Origin，也没有绕过账号、会员、区域或版权权限判断。
+- 验证方式：对三个公开作品的主地址及备用地址执行仅读取响应头的对照测试。严格节点在普通请求及仅带 Range 时均返回 403，带哔哩哔哩 Referer 时返回 200/206；主节点保持 200。新增自动化测试验证规则限定扩展来源、三个 CDN 根域、XHR 类型及唯一 Referer 修改，并执行全部测试、JavaScript 语法检查、Manifest JSON 检查和 `git diff --check`。
+- 相关文件：`manifest.json`、`services/cdn-request-rules.js`、`background/service-worker.js`、`offscreen/offscreen.js`、`tests/cdn-request-rules.test.mjs`、`README.md`、`docs/ISSUES.md`
