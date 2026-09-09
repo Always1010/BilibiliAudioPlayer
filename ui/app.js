@@ -56,6 +56,20 @@ function image(url, alt, className) {
     : `<span class="${className} avatar-fallback">${escapeHtml(String(alt || "音").slice(0, 1))}</span>`;
 }
 
+function applyIconTooltips(scope) {
+  const selector = [
+    "button.icon-button[aria-label]",
+    "button.search-submit[aria-label]",
+    "button.play-main[aria-label]",
+    "button.queue-toggle[aria-label]",
+    "button.section-toggle[aria-label]",
+    "button.section-cover-button[aria-label]"
+  ].join(",");
+  scope.querySelectorAll(selector).forEach(button => {
+    if (!button.title) button.title = button.getAttribute("aria-label") || "";
+  });
+}
+
 async function send(type, payload = {}) {
   const response = await chrome.runtime.sendMessage({ type, target: "background", ...payload });
   if (!response?.ok) {
@@ -426,11 +440,15 @@ function directoryPermissionPromptMarkup() {
 
 function render() {
   root.innerHTML = `<div class="shell">${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}${playlistImportPreviewMarkup()}${directoryPermissionPromptMarkup()}</div>`;
+  applyIconTooltips(root);
 }
 
 function renderPlayer() {
   const slot = root.querySelector(".player-slot");
-  if (slot) slot.innerHTML = playerAreaMarkup();
+  if (slot) {
+    slot.innerHTML = playerAreaMarkup();
+    applyIconTooltips(slot);
+  }
 }
 
 function queueContextForSection(section) {
