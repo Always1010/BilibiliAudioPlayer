@@ -1286,6 +1286,16 @@ async function start() {
     const active = activeCreator();
     if (active && !ui.app.settings.activeCreatorId) ui.app.settings.activeCreatorId = active.id;
     render();
+    if ((ui.app.playlists ?? []).some(playlist => playlist.items.some(item => Number(item.duration) <= 0))) {
+      playlistCommand("repairDurations")
+        .then(playlists => {
+          ui.app.playlists = playlists;
+          render();
+        })
+        .catch(error => {
+          console.warn("历史播放列表时长补全失败", error);
+        });
+    }
     if (active) await loadActiveCreator();
   } catch (error) {
     root.innerHTML = `<div class="empty-state"><h1>扩展启动失败</h1><div class="error-message">${escapeHtml(toErrorMessage(error))}</div></div>`;

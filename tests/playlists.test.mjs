@@ -5,6 +5,7 @@ import {
   deletePlaylist,
   normalizePlaylistItem,
   playlistItemToTrack,
+  repairPlaylistDurations,
   removeTrackFromPlaylist,
   renamePlaylist,
   reorderPlaylistTrack
@@ -53,6 +54,11 @@ assert.deepEqual(playlistItemToTrack(playlists[0].items[0]), {
   duration: 88,
   creator: { id: "9", name: "测试UP主" }
 });
+const stalePlaylists = createPlaylist([], "历史", { id: "p2", now: 1 });
+stalePlaylists[0].items = [{ bvid: "BVZERO", title: "待补全", duration: 0, addedAt: 1 }];
+const repaired = await repairPlaylistDurations(stalePlaylists, async item => ({ duration: item.bvid === "BVZERO" ? 123 : 0 }), 2000);
+assert.equal(repaired[0].items[0].duration, 123);
+assert.equal(repaired[0].updatedAt, 2000);
 assert.deepEqual(deletePlaylist(playlists, "p1"), []);
 
 console.log("播放列表：最小快照、去重、排序、删除和队列转换通过");

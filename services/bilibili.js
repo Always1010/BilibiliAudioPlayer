@@ -61,7 +61,7 @@ function normalizeVideo(item, creator = null) {
     aid: Number(item.aid ?? 0),
     title: stripHtml(item.title ?? "未命名作品"),
     cover: normalizeImageUrl(item.pic ?? item.cover ?? ""),
-    duration: parseDuration(item.duration),
+    duration: parseDuration(item.duration) || parseDuration(item.length) || parseDuration(item.video_duration),
     publishedAt: Number(item.pubdate ?? item.created ?? item.ctime ?? 0),
     description: stripHtml(item.description ?? item.desc ?? ""),
     creator
@@ -211,10 +211,14 @@ export async function listContainerVideos(mid, type, id, page = 1, pageSize = 30
   };
 }
 
-export async function resolveAudioStream(track) {
-  const video = await fetchJson("/x/web-interface/view", {
-    params: track.bvid ? { bvid: track.bvid } : { aid: track.aid }
+export async function getVideoInfo(track) {
+  return fetchJson("/x/web-interface/view", {
+    params: track?.bvid ? { bvid: track.bvid } : { aid: track?.aid }
   });
+}
+
+export async function resolveAudioStream(track) {
+  const video = await getVideoInfo(track);
   const cid = track.cid || video.cid || video.pages?.[0]?.cid;
   if (!cid) throw new BilibiliApiError("无法取得视频分 P 信息");
 

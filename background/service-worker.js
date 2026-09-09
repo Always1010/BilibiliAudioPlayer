@@ -8,6 +8,7 @@ import {
 } from "../shared/storage.js";
 import {
   getCreator,
+  getVideoInfo,
   getLoginStatus,
   listAllCreatorContainers,
   listContainerVideos,
@@ -26,6 +27,7 @@ import {
   renamePlaylist,
   reorderPlaylistTrack
 } from "../services/playlists.js";
+import { repairPlaylistDurations } from "../services/playlists.js";
 import { mergeImportedPlaylists } from "../services/playlist-transfer.js";
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
@@ -266,6 +268,9 @@ async function handlePlaylistCommand(command, payload = {}) {
   if (command === "list") {
     const stored = await chrome.storage.local.get(STORAGE_KEYS.playlists);
     return normalizePlaylists(stored[STORAGE_KEYS.playlists]);
+  }
+  if (command === "repairDurations") {
+    return updateStorageValue(STORAGE_KEYS.playlists, current => repairPlaylistDurations(current, item => getVideoInfo(item)));
   }
   return updateStorageValue(STORAGE_KEYS.playlists, current => {
     if (command === "create") return createPlaylist(current, payload.name);
