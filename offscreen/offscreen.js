@@ -1,5 +1,6 @@
 import { DEFAULT_PLAYER, MESSAGE } from "../shared/constants.js";
 import {
+  clearCacheDirectoryHandle,
   getCacheDirectoryInfo,
   getCacheRecord,
   getCachedFile,
@@ -171,7 +172,7 @@ async function transcodeToMp3(sourceBlob, task) {
   return output;
 }
 
-async function downloadTrack(task) {
+async function downloadTrack(task, getRoot) {
   const existing = await getCacheRecord(task.track.id);
   const existingFormat = existing?.format ?? "original";
   const sameEncoding = existingFormat === task.format
@@ -181,7 +182,7 @@ async function downloadTrack(task) {
     return existing;
   }
 
-  const root = await requireWritableDirectory();
+  const root = await getRoot();
   const stream = await sendToBackground({ type: MESSAGE.resolveAudio, track: task.track });
   const extension = task.format === "mp3" ? "mp3" : extensionForStream(stream);
   const creator = task.track.creator ?? {};
@@ -234,11 +235,16 @@ async function downloadTrack(task) {
 async function processCacheQueue() {
   if (cacheRunning) return;
   cacheRunning = true;
+  let rootPromise = null;
+  const getRoot = () => {
+    if (!rootPromise) rootPromise = requireWritableDirectory();
+    return rootPromise;
+  };
   await reportCache({ status: "started" });
   while (cacheQueue.length) {
     const task = cacheQueue.shift();
     try {
-      await downloadTrack(task);
+      await downloadTrack(task, getRoot);
     } catch (error) {
       await reportCache({ track: task.track, status: "failed", message: error.message });
     }
@@ -251,6 +257,10 @@ async function handleCacheCommand(command, payload = {}) {
   if (command === "status") {
     const [directory, records] = await Promise.all([getCacheDirectoryInfo(), listCacheRecords()]);
     return { directory, records, running: cacheRunning, queued: cacheQueue.length };
+  }
+  if (command === "refreshDirectory") {
+    clearCacheDirectoryHandle();
+    return { refreshed: true };
   }
   if (command === "cacheTracks") {
     const format = payload.format === "mp3" ? "mp3" : "original";
