@@ -1,6 +1,6 @@
 import { MESSAGE } from "../shared/constants.js";
 import { formatDate, formatDuration, toErrorMessage } from "../shared/utils.js";
-import { chooseCacheDirectory } from "../services/file-store.js";
+import { chooseCacheDirectory, needsCacheDirectoryReauthorization, reauthorizeCacheDirectory } from "../services/file-store.js";
 import { filterTracksByKeyword } from "../services/track-search.js";
 import { playbackSourceLabel } from "../services/playback-source.js";
 import { playlistItemToTrack } from "../services/playlists.js";
@@ -23,6 +23,7 @@ const ui = {
   activePlaylistId: null,
   playlistPicker: null,
   playlistImportPreview: null,
+  directoryPermissionPrompt: false,
   expanded: new Set(["all"]),
   searchResults: [],
   searchKeyword: "",
@@ -414,8 +415,14 @@ function playlistImportPreviewMarkup() {
   return `<div class="modal-backdrop" data-action="close-playlist-import"><section class="playlist-picker import-preview" role="dialog" aria-modal="true" aria-label="预览播放列表导入"><div class="playlist-picker-header"><div><h2>预览导入</h2><p>${escapeHtml(preview.fileName)}</p></div><button class="icon-button" type="button" data-action="close-playlist-import" aria-label="关闭">${symbol("×")}</button></div><div class="import-summary"><strong>${preview.playlistCount}</strong><span>个播放列表</span><strong>${preview.itemCount}</strong><span>个作品</span></div>${conflicts ? `<div class="notice">检测到 ${conflicts} 个同 ID 播放列表。合并时会保留两份，并将导入副本标记为“（导入）”。</div>` : ""}<p class="import-help">备份仅包含 BV 号、标题、时长、UP 主信息和添加时间，不包含音频文件或缓存路径。</p><div class="import-actions"><button class="plain-button" type="button" data-action="confirm-playlist-import" data-mode="merge">合并到现有列表</button><button class="danger-button" type="button" data-action="confirm-playlist-import" data-mode="replace">替换现有列表</button></div></section></div>`;
 }
 
+function directoryPermissionPromptMarkup() {
+  const directory = ui.cacheInfo?.directory;
+  if (!ui.directoryPermissionPrompt || !needsCacheDirectoryReauthorization(directory)) return "";
+  return `<div class="modal-backdrop" data-action="dismiss-directory-permission"><section class="permission-dialog" role="dialog" aria-modal="true" aria-label="缓存目录需要重新授权"><div class="permission-dialog-icon">${symbol("▣")}</div><div><h2>本地缓存目录需要重新授权</h2><p>“${escapeHtml(directory.name || "已选择的目录")}”当前不可访问。重新授权前，已缓存的音频不会被识别，播放会回退到在线资源。</p></div><div class="permission-dialog-actions"><button class="ghost-button" type="button" data-action="dismiss-directory-permission">稍后处理</button><button class="primary-button" type="button" data-action="reauthorize-directory">重新授权目录</button></div></section></div>`;
+}
+
 function render() {
-  root.innerHTML = `<div class="shell">${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}${playlistImportPreviewMarkup()}</div>`;
+  root.innerHTML = `<div class="shell">${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}${playlistImportPreviewMarkup()}${directoryPermissionPromptMarkup()}</div>`;
 }
 
 function renderPlayer() {
@@ -868,6 +875,20 @@ root.addEventListener("click", async event => {
         render();
       }
     }
+    else if (action === "dismiss-directory-permission") {
+      if (event.target === button || button.closest(".permission-dialog-actions")) {
+        ui.directoryPermissionPrompt = false;
+        render();
+      }
+    }
+    else if (action === "reauthorize-directory") {
+      const directory = await reauthorizeCacheDirectory();
+      await send(MESSAGE.cacheCommand, { command: "refreshDirectory" });
+      await refreshCacheInfo();
+      ui.directoryPermissionPrompt = false;
+      ui.notice = `缓存目录“${directory.name}”已重新授权，本地缓存已恢复可用。`;
+      render();
+    }
     else if (action === "confirm-playlist-import") {
       const preview = ui.playlistImportPreview;
       const mode = button.dataset.mode;
@@ -1025,6 +1046,7 @@ root.addEventListener("click", async event => {
       const directory = await chooseCacheDirectory();
       await send(MESSAGE.cacheCommand, { command: "refreshDirectory" });
       ui.notice = `缓存目录已设置为“${directory.name}”。`;
+      ui.directoryPermissionPrompt = false;
       await refreshCacheInfo();
       render();
     }
@@ -1076,6 +1098,7 @@ async function start() {
   try {
     ui.app = await send(MESSAGE.getAppState);
     await refreshCacheInfo();
+    ui.directoryPermissionPrompt = needsCacheDirectoryReauthorization(ui.cacheInfo?.directory);
     const active = activeCreator();
     if (active && !ui.app.settings.activeCreatorId) ui.app.settings.activeCreatorId = active.id;
     render();

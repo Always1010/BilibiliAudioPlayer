@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createDirectoryHandleCache } from "../services/file-store.js";
+import { createDirectoryHandleCache, needsCacheDirectoryReauthorization } from "../services/file-store.js";
 
 let loads = 0;
 const first = { name: "目录一" };
@@ -24,4 +24,9 @@ const selected = { name: "用户新选目录" };
 cache.set(selected);
 assert.equal(await cache.get(), selected);
 assert.equal(loads, 2, "用户新选目录应立即替换缓存且无需再次加载");
+
+assert.equal(needsCacheDirectoryReauthorization({ configured: true, permission: "prompt" }), true);
+assert.equal(needsCacheDirectoryReauthorization({ configured: true, permission: "denied" }), true);
+assert.equal(needsCacheDirectoryReauthorization({ configured: true, permission: "granted" }), false);
+assert.equal(needsCacheDirectoryReauthorization({ configured: false, permission: "prompt" }), false);
 console.log("缓存目录：批次复用、并发复用和主动刷新通过");
