@@ -13,6 +13,7 @@ import {
 import { encodeAudioBufferToMp3, normalizeMp3Bitrate } from "../services/mp3.js";
 import { addCacheHistory, summarizeCacheTask } from "../services/cache-queue-state.js";
 import { audioStreamCandidates, mediaErrorText, mediaSourceType } from "../services/audio-stream.js";
+import { cachedPlaybackSource, onlinePlaybackSource } from "../services/playback-source.js";
 
 const audio = document.getElementById("audio");
 let state = { ...DEFAULT_PLAYER };
@@ -40,6 +41,8 @@ function publicPlayerState(patch = {}) {
     playing: !audio.paused && !audio.ended,
     currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : state.currentTime,
     duration: Number.isFinite(audio.duration) ? audio.duration : state.duration,
+    loading: Boolean(state.loading),
+    source: state.source ?? null,
     volume: audio.volume,
     mode: state.mode,
     error: null,
@@ -236,29 +239,33 @@ async function loadAndPlay(index, resumeAt = 0) {
   const track = state.queue[normalizedIndex];
   state.queueIndex = normalizedIndex;
   state.currentTrack = track;
-  await report({ loading: true, currentTrack: track, queueIndex: normalizedIndex }, true);
+  await report({ loading: true, source: null, currentTrack: track, queueIndex: normalizedIndex }, true);
   disposeCurrentSource();
 
   const cachedRecord = await getCacheRecord(track.id);
   const cachedFile = cachedRecord ? await getCachedFile(cachedRecord) : null;
+  let source;
   if (cachedFile?.size) {
     try {
       currentObjectUrl = URL.createObjectURL(cachedFile);
       audio.src = currentObjectUrl;
       audio.load();
       await waitForAudioReady("本地缓存加载", resumeAt);
+      source = cachedPlaybackSource(cachedRecord);
     } catch {
       disposeCurrentSource();
       await loadRemoteAudio(track, resumeAt);
+      source = onlinePlaybackSource();
     }
   } else {
     await loadRemoteAudio(track, resumeAt);
+    source = onlinePlaybackSource();
   }
 
   audio.volume = state.volume ?? 0.8;
   updateMediaSession(track);
   await audio.play();
-  await report({ loading: false });
+  await report({ loading: false, source });
 }
 
 function cacheSnapshot(patch = {}) {
