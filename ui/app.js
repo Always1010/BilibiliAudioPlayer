@@ -134,7 +134,6 @@ function searchResults() {
 function sidebar() {
   const workCount = cacheWorkCount();
   return `<aside class="sidebar" aria-label="主导航">
-    <button class="nav-button ${ui.view === "creator" || ui.view === "detail" ? "active" : ""}" type="button" data-action="show-creator">${symbol("⌂")}UP 主主页</button>
     <button class="nav-button ${ui.view === "playlists" ? "active" : ""}" type="button" data-action="show-playlists">${symbol("☷")}我的播放列表<span class="nav-badge subtle">${ui.app?.playlists?.length ?? 0}</span></button>
     <button class="nav-button ${ui.view === "downloads" ? "active" : ""}" type="button" data-action="show-downloads">${symbol("⇩")}缓存管理${workCount ? `<span class="nav-badge" aria-label="${workCount} 个缓存任务">${workCount}</span>` : ""}</button>
     <button class="nav-button ${ui.view === "settings" ? "active" : ""}" type="button" data-action="show-settings">${symbol("⚙")}设置</button>
