@@ -4,7 +4,8 @@ import {
   buildArchiveManifest,
   parseArchiveAudioFilename,
   parseArchiveManifest,
-  recoveredArchiveScope
+  recoveredArchiveScope,
+  removeArchiveManifestFiles
 } from "../services/archive-manifest.js";
 
 const scope = { key: "playlist:p1", type: "playlist", id: "p1", title: "工作音乐" };
@@ -48,5 +49,15 @@ assert.deepEqual(recoveredArchiveScope(["我的播放列表", "工作音乐 [abc
   title: "工作音乐 [abcd]"
 });
 assert.equal(recoveredArchiveScope(["测试UP_7", "全部作品"]).key, "all:7");
+
+const removed = removeArchiveManifestFiles(second, [{
+  bvid: "BV1ARCHIVE1",
+  filename: "001 - 第一首 [BV1ARCHIVE1].mp3"
+}], Date.UTC(2026, 0, 3));
+assert.equal(removed.items[0].filename, "");
+assert.equal(removed.items[0].format, "");
+assert.equal(removed.items[0].bitrate, null);
+assert.equal(removed.items[0].size, 0);
+assert.equal(removed.items[1].title, "第二首", "删除一个文件不能改变同列表的其他作品");
 
 console.log("归档清单：最小元数据、分步完成合并和异常解析通过");

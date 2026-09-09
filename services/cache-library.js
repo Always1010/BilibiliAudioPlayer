@@ -1,4 +1,4 @@
-import { normalizeCacheRecord } from "./cache-records.js";
+import { archiveScope, normalizeCacheRecord } from "./cache-records.js";
 
 const CREATOR_SCOPE_ORDER = new Map([
   ["all", 0],
@@ -25,7 +25,7 @@ function group(id, label, options = {}) {
   };
 }
 
-function locationKey(trackId, locationId) {
+export function cacheLocationKey(trackId, locationId) {
   return `${encodeURIComponent(String(trackId))}::${encodeURIComponent(String(locationId))}`;
 }
 
@@ -121,7 +121,7 @@ export function flattenCacheLocations(records) {
     for (const location of record.locations) {
       leaves.push({
         kind: "file",
-        key: locationKey(record.trackId, location.id),
+        key: cacheLocationKey(record.trackId, location.id),
         trackId: record.trackId,
         locationId: location.id,
         bvid: record.bvid,
@@ -158,4 +158,32 @@ export function buildCacheLibrary(records) {
 
 export function cacheLibraryLocationMap(records) {
   return new Map(flattenCacheLocations(records).map(location => [location.key, location]));
+}
+
+export function cacheTaskLocationKey(task) {
+  if (!task?.track?.id) return "";
+  const scope = archiveScope(task.section, task.track.creator ?? {});
+  const format = task.format === "mp3" ? "mp3" : "original";
+  const locationId = `${scope.key}:${format}:${format === "mp3" ? Number(task.bitrate) || "unknown" : "source"}`;
+  return cacheLocationKey(task.track.id, locationId);
+}
+
+export function cacheSelectionState(locationKeys, selectedKeys) {
+  const keys = [...new Set(locationKeys ?? [])];
+  const selected = keys.filter(key => selectedKeys?.has(key)).length;
+  if (!selected) return "none";
+  return selected === keys.length ? "all" : "some";
+}
+
+export function cacheSelectionSummary(records, selectedKeys) {
+  const locations = cacheLibraryLocationMap(records);
+  let count = 0;
+  let size = 0;
+  for (const key of selectedKeys ?? []) {
+    const location = locations.get(key);
+    if (!location) continue;
+    count += 1;
+    size += Number(location.size) || 0;
+  }
+  return { count, size };
 }

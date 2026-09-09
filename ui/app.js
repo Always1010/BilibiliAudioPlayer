@@ -6,7 +6,13 @@ import { playbackSourceLabel } from "../services/playback-source.js";
 import { playlistItemToTrack } from "../services/playlists.js";
 import { parsePlaylistExport, serializePlaylistExport } from "../services/playlist-transfer.js";
 import { cacheCoverageForTracks, cacheRecordBytes } from "../services/cache-records.js";
-import { buildCacheLibrary } from "../services/cache-library.js";
+import {
+  buildCacheLibrary,
+  cacheLibraryLocationMap,
+  cacheSelectionState,
+  cacheSelectionSummary,
+  cacheTaskLocationKey
+} from "../services/cache-library.js";
 import { loadAllSectionPages } from "../services/section-pagination.js";
 import { playbackModeLabel } from "../services/playback-mode.js";
 import { PLAYBACK_RATE_MAX, PLAYBACK_RATE_MIN, PLAYBACK_RATE_STEP, normalizePlaybackRate, playbackRateLabel } from "../services/playback-rate.js";
@@ -51,6 +57,9 @@ const ui = {
   cacheToast: null,
   cacheExpandedGroups: new Set(),
   cacheExpansionInitialized: false,
+  cacheManageMode: false,
+  cacheSelectedLocations: new Set(),
+  cacheDeleting: false,
   detailOrigin: "creator",
   favoriteMetadata: {},
   favoriteMetadataLoading: false,
@@ -384,6 +393,14 @@ function downloadsPage() {
   const activeCount = pending.length + (current ? 1 : 0);
   const progress = Math.max(0, Math.min(100, Math.round(Number(activity?.progress ?? 0) * 100)));
   const library = buildCacheLibrary(records);
+  const locationMap = cacheLibraryLocationMap(records);
+  for (const key of ui.cacheSelectedLocations) {
+    if (!locationMap.has(key)) ui.cacheSelectedLocations.delete(key);
+  }
+  const busyKeys = cacheBusyLocationKeys(info);
+  const selectableKeys = [...locationMap.keys()].filter(key => !busyKeys.has(key));
+  const selection = cacheSelectionSummary(records, ui.cacheSelectedLocations);
+  const allSelectionState = cacheSelectionState(selectableKeys, ui.cacheSelectedLocations);
   if (!ui.cacheExpansionInitialized && library.length) {
     library.forEach(node => ui.cacheExpandedGroups.add(node.id));
     ui.cacheExpansionInitialized = true;
@@ -401,18 +418,80 @@ function downloadsPage() {
       ${pending.length ? `<div class="queue-list"><div class="queue-list-title">等待中</div>${pending.map((task, index) => cacheTaskRow(task, `${index + 1}`, "等待中")).join("")}</div>` : ""}
     </div>
     <div data-cache-section="history">${recent.length ? `<div class="cache-history-panel"><div class="cache-panel-heading"><div><h2>最近任务</h2><p>保留本次后台会话最近 ${recent.length} 条结果</p></div></div><div class="queue-list">${recent.slice(0, 20).map(task => cacheTaskRow(task, cacheHistorySymbol(task.status), cacheHistoryText(task))).join("")}</div></div>` : ""}</div>
-    <div data-cache-section="files"><div class="cache-files-heading"><div><h2>已缓存文件</h2><p>按本地归档目录展示，共 ${locations.length} 个实体副本</p></div></div>
-    ${library.length ? `<div class="cache-library">${library.map(node => cacheLibraryNodeMarkup(node)).join("")}</div>` : '<div class="download-placeholder"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}</div>
+    <div data-cache-section="files"><div class="cache-files-heading"><div><h2>已缓存文件</h2><p>按本地归档目录展示，共 ${locations.length} 个实体副本</p></div>${locations.length ? `<button class="plain-button" type="button" data-action="toggle-cache-management" ${ui.cacheDeleting ? "disabled" : ""}>${ui.cacheManageMode ? "完成" : "批量管理"}</button>` : ""}</div>
+    ${ui.cacheManageMode && library.length ? `<div class="cache-batch-toolbar"><label class="cache-select-label"><input type="checkbox" data-action="toggle-cache-selection" data-key="__all__" ${allSelectionState === "all" ? "checked" : ""} data-indeterminate="${allSelectionState === "some"}">全选</label><span>已选择 ${selection.count} 个 · ${formatBytes(selection.size)}</span><button class="plain-button danger-button" type="button" data-action="delete-selected-cache" ${selection.count && !ui.cacheDeleting ? "" : "disabled"}>${ui.cacheDeleting ? "正在删除…" : "删除所选"}</button></div>` : ""}
+    ${library.length ? `<div class="cache-library">${library.map(node => cacheLibraryNodeMarkup(node, 0, busyKeys)).join("")}</div>` : '<div class="download-placeholder"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}</div>
   </section>`;
 }
 
-function cacheLibraryNodeMarkup(node, depth = 0) {
+function cacheBusyLocationKeys(info = ui.cacheInfo) {
+  return new Set([info?.current, ...(info?.pending ?? [])].map(cacheTaskLocationKey).filter(Boolean));
+}
+
+function findCacheLibraryNode(nodes, id) {
+  for (const node of nodes) {
+    if (node.id === id || node.key === id) return node;
+    if (node.kind === "group") {
+      const child = findCacheLibraryNode(node.children, id);
+      if (child) return child;
+    }
+  }
+  return null;
+}
+
+function cacheNodeLocationKeys(node) {
+  return node?.kind === "group" ? node.locationKeys : node?.key ? [node.key] : [];
+}
+
+function cacheSelectionCheckbox(node, busyKeys) {
+  const keys = cacheNodeLocationKeys(node).filter(key => !busyKeys.has(key));
+  const state = cacheSelectionState(keys, ui.cacheSelectedLocations);
+  return `<input class="cache-select-input" type="checkbox" data-action="toggle-cache-selection" data-key="${escapeHtml(node.id || node.key)}" ${state === "all" ? "checked" : ""} data-indeterminate="${state === "some"}" ${keys.length && !ui.cacheDeleting ? "" : "disabled"} aria-label="选择${escapeHtml(node.label || node.title)}">`;
+}
+
+function cacheLibraryNodeMarkup(node, depth = 0, busyKeys = new Set()) {
   if (node.kind === "file") {
     const format = node.format === "mp3" ? `MP3 ${node.bitrate} kbps` : "原始格式";
-    return `<div class="cache-file-row" style="--cache-depth:${depth}"><span class="cache-tree-guide"></span><div class="cache-file-copy"><div class="track-title">${escapeHtml(node.title)}</div><div class="track-subtitle">${escapeHtml(node.bvid || node.trackId)} · ${format}</div></div><span class="track-duration">${formatBytes(node.size)}</span><span class="cached" aria-label="已缓存">✓</span></div>`;
+    const busy = busyKeys.has(node.key);
+    return `<div class="cache-file-row">${ui.cacheManageMode ? cacheSelectionCheckbox(node, busyKeys) : '<span class="cache-tree-guide"></span>'}<div class="cache-file-copy"><div class="track-title">${escapeHtml(node.title)}</div><div class="track-subtitle">${escapeHtml(node.bvid || node.trackId)} · ${format}${busy ? " · 缓存任务进行中" : ""}</div></div><span class="track-duration">${formatBytes(node.size)}</span>${ui.cacheManageMode ? "" : `<button class="icon-button danger-button" type="button" data-action="delete-cache-node" data-key="${escapeHtml(node.key)}" aria-label="删除缓存" ${busy || ui.cacheDeleting ? "disabled" : ""}>${symbol("×")}</button>`}</div>`;
   }
   const expanded = ui.cacheExpandedGroups.has(node.id);
-  return `<div class="cache-group" data-cache-group="${escapeHtml(node.id)}"><button class="cache-group-row" type="button" data-action="toggle-cache-group" data-key="${escapeHtml(node.id)}" aria-expanded="${expanded}"><span class="cache-group-toggle">${symbol(expanded ? "⌄" : "›")}</span><span class="cache-group-copy"><strong>${escapeHtml(node.label)}</strong>${node.subtitle ? `<small>${escapeHtml(node.subtitle)}</small>` : ""}</span><span class="cache-group-meta">${node.count} 个 · ${formatBytes(node.size)}</span></button>${expanded ? `<div class="cache-group-children">${node.children.map(child => cacheLibraryNodeMarkup(child, depth + 1)).join("")}</div>` : ""}</div>`;
+  const busy = node.locationKeys.some(key => busyKeys.has(key));
+  return `<div class="cache-group" data-cache-group="${escapeHtml(node.id)}"><div class="cache-group-row">${ui.cacheManageMode ? cacheSelectionCheckbox(node, busyKeys) : ""}<button class="cache-group-main" type="button" data-action="toggle-cache-group" data-key="${escapeHtml(node.id)}" aria-expanded="${expanded}"><span class="cache-group-toggle">${symbol(expanded ? "⌄" : "›")}</span><span class="cache-group-copy"><strong>${escapeHtml(node.label)}</strong>${node.subtitle ? `<small>${escapeHtml(node.subtitle)}</small>` : ""}</span><span class="cache-group-meta">${node.count} 个 · ${formatBytes(node.size)}${busy ? " · 有任务进行中" : ""}</span></button>${ui.cacheManageMode ? "" : `<button class="icon-button danger-button" type="button" data-action="delete-cache-node" data-key="${escapeHtml(node.id)}" aria-label="删除${escapeHtml(node.label)}的缓存" ${busy || ui.cacheDeleting ? "disabled" : ""}>${symbol("×")}</button>`}</div>${expanded ? `<div class="cache-group-children">${node.children.map(child => cacheLibraryNodeMarkup(child, depth + 1, busyKeys)).join("")}</div>` : ""}</div>`;
+}
+
+function applyCacheSelectionStates(scope = root) {
+  scope.querySelectorAll('input[data-indeterminate="true"]').forEach(input => { input.indeterminate = true; });
+}
+
+async function deleteCacheNodes(keys, label) {
+  const records = ui.cacheInfo?.records ?? [];
+  const locations = cacheLibraryLocationMap(records);
+  const targets = [...new Set(keys)].map(key => locations.get(key)).filter(Boolean);
+  if (!targets.length) throw new Error("没有可删除的缓存文件");
+  const busy = cacheBusyLocationKeys();
+  if (targets.some(target => busy.has(target.key))) throw new Error("所选缓存仍有任务进行中，请稍后再删除");
+  const totalSize = targets.reduce((sum, target) => sum + (Number(target.size) || 0), 0);
+  if (!window.confirm(`确定永久删除${label ? `“${label}”对应的` : "所选"} ${targets.length} 个实体缓存文件吗？\n预计释放 ${formatBytes(totalSize)}，此操作无法撤销。`)) return;
+  ui.cacheDeleting = true;
+  ui.error = "";
+  render();
+  try {
+    ui.cacheInfo = await send(MESSAGE.cacheCommand, {
+      command: "deleteCacheLocations",
+      payload: { locations: targets.map(target => ({ trackId: target.trackId, locationId: target.locationId })) }
+    });
+    const result = ui.cacheInfo.deletion ?? {};
+    const failed = Number(result.failed) || 0;
+    const cleaned = Number(result.cleaned) || 0;
+    ui.notice = `已删除 ${Number(result.deleted) || 0} 个缓存文件${cleaned ? `，并清理 ${cleaned} 条失效记录` : ""}，释放 ${formatBytes(result.bytes)}。`;
+    ui.error = failed ? `${failed} 个文件未能完整处理，请检查目录权限后重试；必要时可使用“扫描归档”校准索引。` : result.manifestErrors ? `${result.manifestErrors} 个播放列表清单未能同步更新，可稍后使用“扫描归档”修复。` : "";
+    ui.cacheSelectedLocations.clear();
+    if (!(ui.cacheInfo.records ?? []).length) ui.cacheManageMode = false;
+  } finally {
+    ui.cacheDeleting = false;
+    render();
+  }
 }
 
 function activePlaylist() {
@@ -592,6 +671,7 @@ function render() {
   root.innerHTML = `<div class="shell"><div class="cache-toast-host">${cacheToastMarkup()}</div>${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}${playlistImportPreviewMarkup()}${directoryPermissionPromptMarkup()}</div>`;
   renderedPlayerKey = playerStructureKey(ui.app?.player, { queueOpen: ui.queueOpen });
   applyIconTooltips(root);
+  applyCacheSelectionStates(root);
 }
 
 function updatePlayerProgress(slot) {
@@ -658,6 +738,7 @@ function replaceCacheSections() {
     if (current && next) current.replaceWith(next);
   });
   applyIconTooltips(content);
+  applyCacheSelectionStates(content);
 }
 
 function renderCacheState({ progressOnly = false } = {}) {
@@ -1396,6 +1477,27 @@ root.addEventListener("click", async event => {
         ? ui.cacheExpandedGroups.delete(button.dataset.key)
         : ui.cacheExpandedGroups.add(button.dataset.key);
       replaceCacheSections();
+    }
+    else if (action === "toggle-cache-management") {
+      ui.cacheManageMode = !ui.cacheManageMode;
+      if (!ui.cacheManageMode) ui.cacheSelectedLocations.clear();
+      replaceCacheSections();
+    }
+    else if (action === "toggle-cache-selection") {
+      const library = buildCacheLibrary(ui.cacheInfo?.records ?? []);
+      const locations = cacheLibraryLocationMap(ui.cacheInfo?.records ?? []);
+      const node = button.dataset.key === "__all__" ? null : findCacheLibraryNode(library, button.dataset.key);
+      const busy = cacheBusyLocationKeys();
+      const keys = (node ? cacheNodeLocationKeys(node) : [...locations.keys()]).filter(key => !busy.has(key));
+      keys.forEach(key => button.checked ? ui.cacheSelectedLocations.add(key) : ui.cacheSelectedLocations.delete(key));
+      replaceCacheSections();
+    }
+    else if (action === "delete-cache-node") {
+      const node = findCacheLibraryNode(buildCacheLibrary(ui.cacheInfo?.records ?? []), button.dataset.key);
+      await deleteCacheNodes(cacheNodeLocationKeys(node), node?.label || node?.title || "缓存文件");
+    }
+    else if (action === "delete-selected-cache") {
+      await deleteCacheNodes([...ui.cacheSelectedLocations], "");
     }
     else if (action === "show-settings") { ui.view = "settings"; render(); }
     else if (action === "open-cache-queue") { ui.view = "downloads"; ui.cacheToast = null; render(); }

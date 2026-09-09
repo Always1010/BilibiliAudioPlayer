@@ -535,3 +535,13 @@
 - 解决方案：新增缓存目录树纯数据层，按照“UP 主 → 全部作品/合集/系列 → 作品”组织实体副本，自定义播放列表和恢复/未分类归档作为独立分组。目录节点显示副本数量和占用空间并可逐级展开，文件行显示 BV 号、格式、码率和大小；移除 200 条展示上限，折叠时只渲染当前可见分支。
 - 验证方式：新增目录树测试，覆盖 UP 主、栏目、自定义播放列表、恢复归档、多实体副本和汇总统计；执行全部 Node 测试、JavaScript 语法检查、Manifest 0.10.0 JSON 检查与 `git diff --check`。
 - 相关文件：`services/cache-library.js`、`tests/cache-library.test.mjs`、`ui/app.js`、`ui/app.css`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-052：缓存管理只能查看不能删除实体文件
+
+- 日期：2026-09-09
+- 状态：已解决
+- 修改背景：缓存管理需要真正管理磁盘归档，既要能删除单个缓存副本，也要能按栏目、UP 主、播放列表或任意批量选择释放空间。
+- 原因：界面没有删除入口；已有的 `deleteCacheLocation` 只用于清理失效索引，不会删除磁盘文件，也没有层级选择、确认提示、播放列表归档清单同步或部分失败反馈。
+- 解决方案：缓存目录树增加单项/整组删除按钮和批量管理模式，支持父子级联选择、半选状态、全选、已选数量及空间汇总。删除请求按作品与缓存位置精确定位实体副本，获得读写权限后逐个删除文件，成功或确认文件已不存在时才移除索引；同一 BV 号在其他栏目或播放列表中的副本保持不变。播放列表文件删除后同步清单，只有目录确实为空时才逐级清理，未知文件不会被递归删除；正在下载或等待中的相同目标禁止删除，失败项保留并显示结果。
+- 验证方式：扩展缓存目录树、目录文件操作和归档清单测试，覆盖级联选择、任务目标匹配、空间统计、精确文件删除、失效文件清理、空目录安全清理和清单条目更新；执行全部 Node 测试、JavaScript 语法检查、Manifest 0.10.1 JSON 检查与 `git diff --check`。
+- 相关文件：`services/cache-library.js`、`services/file-store.js`、`services/archive-manifest.js`、`offscreen/offscreen.js`、`ui/app.js`、`ui/app.css`、`tests/cache-library.test.mjs`、`tests/file-store.test.mjs`、`tests/archive-manifest.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`

@@ -1,6 +1,7 @@
 import { DEFAULT_PLAYER, MESSAGE } from "../shared/constants.js";
 import {
   clearCacheDirectoryHandle,
+  deleteCacheFiles,
   deleteCacheLocation,
   findCachedFile,
   findCachedFiles,
@@ -9,6 +10,7 @@ import {
   getOrCreateDirectory,
   listCacheRecords,
   putCacheRecord,
+  pruneEmptyCacheDirectories,
   requireWritableDirectory,
   safeFilePart
 } from "../services/file-store.js";
@@ -25,7 +27,8 @@ import {
   buildArchiveManifest,
   parseArchiveAudioFilename,
   parseArchiveManifest,
-  recoveredArchiveScope
+  recoveredArchiveScope,
+  removeArchiveManifestFiles
 } from "../services/archive-manifest.js";
 
 const audio = document.getElementById("audio");
@@ -375,6 +378,49 @@ async function readArchiveManifest(directory) {
   }
 }
 
+async function directoryAtPath(root, path) {
+  let directory = root;
+  for (const part of path) directory = await directory.getDirectoryHandle(part);
+  return directory;
+}
+
+async function updateDeletedPlaylistManifests(root, results) {
+  const groups = new Map();
+  for (const result of results) {
+    if (!["deleted", "missing-file"].includes(result.status) || result.location?.scope?.type !== "playlist") continue;
+    const directoryPath = result.location.path.slice(0, -1);
+    const key = directoryPath.join("\u0000");
+    if (!groups.has(key)) groups.set(key, { directoryPath, removals: [] });
+    groups.get(key).removals.push({ bvid: result.bvid || result.trackId, filename: result.location.path.at(-1) });
+  }
+
+  let errors = 0;
+  for (const { directoryPath, removals } of groups.values()) {
+    try {
+      const directory = await directoryAtPath(root, directoryPath);
+      const manifest = await readArchiveManifest(directory);
+      if (!manifest) {
+        await pruneEmptyCacheDirectories(root, directoryPath);
+        continue;
+      }
+      const next = removeArchiveManifestFiles(manifest, removals);
+      if (next.items.some(item => item.filename)) {
+        const handle = await directory.getFileHandle(ARCHIVE_MANIFEST_FILENAME);
+        const writable = await handle.createWritable();
+        await writable.write(`${JSON.stringify(next, null, 2)}\n`);
+        await writable.close();
+      } else {
+        await directory.removeEntry(ARCHIVE_MANIFEST_FILENAME);
+        await pruneEmptyCacheDirectories(root, directoryPath);
+      }
+    } catch (error) {
+      if (error?.name === "NotFoundError") continue;
+      errors += 1;
+    }
+  }
+  return errors;
+}
+
 async function scanArchiveDirectory(directory, path, summary) {
   const manifest = await readArchiveManifest(directory);
   if (manifest) summary.manifests += 1;
@@ -596,6 +642,13 @@ async function processCacheQueue() {
   await reportCache({ status: "idle" });
 }
 
+function cacheTaskTargetKey(task) {
+  const scope = archiveScope(task.section, task.track.creator ?? {});
+  const format = task.format === "mp3" ? "mp3" : "original";
+  const locationId = `${scope.key}:${format}:${format === "mp3" ? task.bitrate : "source"}`;
+  return `${String(task.track.id)}\u0000${locationId}`;
+}
+
 async function handleCacheCommand(command, payload = {}) {
   if (command === "status") {
     const [directory, records] = await Promise.all([getCacheDirectoryInfo(), listCacheRecords()]);
@@ -635,6 +688,18 @@ async function handleCacheCommand(command, payload = {}) {
     });
     processCacheQueue().catch(error => reportCache({ status: "failed", message: error.message }));
     return cacheSnapshot({ accepted: true });
+  }
+  if (command === "deleteCacheLocations") {
+    const targets = Array.isArray(payload.locations) ? payload.locations : [];
+    const busy = new Set([...cacheQueue, currentCacheTask].filter(Boolean).map(cacheTaskTargetKey));
+    if (targets.some(target => busy.has(`${String(target.trackId)}\u0000${target.locationId}`))) {
+      throw new Error("所选缓存仍在下载或等待队列中，请在任务结束后再删除");
+    }
+    const deletion = await deleteCacheFiles(targets);
+    const manifestErrors = await updateDeletedPlaylistManifests(deletion.root, deletion.results);
+    const { root, ...summary } = deletion;
+    const [directory, records] = await Promise.all([getCacheDirectoryInfo(), listCacheRecords()]);
+    return cacheSnapshot({ directory, records, deletion: { ...summary, manifestErrors } });
   }
   throw new Error(`未知缓存命令：${command}`);
 }

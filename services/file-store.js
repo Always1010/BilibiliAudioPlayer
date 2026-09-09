@@ -112,6 +112,10 @@ export async function getCacheDirectoryInfo() {
   return { configured: true, name: handle.name, permission };
 }
 
+function isNotFoundError(error) {
+  return error?.name === "NotFoundError";
+}
+
 export async function requireWritableDirectory() {
   const handle = await getCacheDirectoryHandle();
   if (!handle) throw new Error("请先在缓存管理中选择本地目录");
@@ -149,6 +153,82 @@ export async function deleteCacheLocation(trackId, locationId) {
   }
   await useStore(RECORD_STORE, "readwrite", store => store.put(next));
   return next;
+}
+
+export async function removeCacheFileAtPath(root, path) {
+  if (!root || !Array.isArray(path) || path.length < 1) throw new Error("缓存文件路径无效");
+  let directory = root;
+  try {
+    for (const part of path.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
+    await directory.removeEntry(path.at(-1));
+    return { removed: true, missing: false };
+  } catch (error) {
+    if (isNotFoundError(error)) return { removed: false, missing: true };
+    throw error;
+  }
+}
+
+export async function pruneEmptyCacheDirectories(root, path) {
+  const parts = Array.isArray(path) ? path.filter(Boolean) : [];
+  let removed = 0;
+  for (let index = parts.length; index > 0; index -= 1) {
+    let parent = root;
+    try {
+      for (const part of parts.slice(0, index - 1)) parent = await parent.getDirectoryHandle(part);
+      await parent.removeEntry(parts[index - 1]);
+      removed += 1;
+    } catch {
+      break;
+    }
+  }
+  return removed;
+}
+
+export async function deleteCacheFiles(targets) {
+  const root = await requireWritableDirectory();
+  const unique = new Map((targets ?? []).map(target => [`${target.trackId}\u0000${target.locationId}`, target]));
+  const results = [];
+  for (const target of unique.values()) {
+    const record = await getCacheRecord(target.trackId);
+    const location = record?.locations.find(item => item.id === target.locationId);
+    if (!record || !location) {
+      results.push({ ...target, status: "missing-index", size: 0 });
+      continue;
+    }
+    try {
+      const physical = await removeCacheFileAtPath(root, location.path);
+      await deleteCacheLocation(record.trackId, location.id);
+      if (location.scope?.type !== "playlist") {
+        await pruneEmptyCacheDirectories(root, location.path.slice(0, -1));
+      }
+      results.push({
+        trackId: record.trackId,
+        bvid: record.bvid,
+        title: record.title,
+        location,
+        status: physical.missing ? "missing-file" : "deleted",
+        size: location.size
+      });
+    } catch (error) {
+      results.push({
+        trackId: record.trackId,
+        bvid: record.bvid,
+        title: record.title,
+        location,
+        status: "failed",
+        size: location.size,
+        error: error?.message || "删除失败"
+      });
+    }
+  }
+  return {
+    results,
+    deleted: results.filter(item => item.status === "deleted").length,
+    cleaned: results.filter(item => item.status === "missing-file" || item.status === "missing-index").length,
+    failed: results.filter(item => item.status === "failed").length,
+    bytes: results.filter(item => item.status === "deleted").reduce((sum, item) => sum + (Number(item.size) || 0), 0),
+    root
+  };
 }
 
 export function safeFilePart(value, fallback = "未命名") {
