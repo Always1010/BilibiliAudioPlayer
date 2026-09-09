@@ -26,7 +26,6 @@ export function normalizeFavoriteSection(section, now = Date.now()) {
     type,
     sectionId,
     title,
-    total: Math.max(0, Number(section?.total) || 0),
     addedAt: timestamp(section?.addedAt, now)
   };
 }

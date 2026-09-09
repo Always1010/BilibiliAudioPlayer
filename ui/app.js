@@ -245,8 +245,7 @@ function favoriteSectionPayload(section) {
     creatorName: creator.name,
     type: section.type,
     sectionId: section.id,
-    title: section.title,
-    total: section.total
+    title: section.title
   };
 }
 

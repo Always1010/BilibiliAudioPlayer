@@ -24,10 +24,10 @@ assert.deepEqual(normalized, {
   type: "season",
   sectionId: "101",
   title: "通勤节目",
-  total: 12,
   addedAt: 1000
 });
 assert.equal("cover" in normalized, false);
+assert.equal("total" in normalized, false);
 assert.equal(favoriteSectionKey({ creatorId: 9, type: "season", sectionId: 101 }), "9:season:101");
 assert.equal(normalizeFavoriteSection({ ...source, type: "all" }), null);
 
@@ -36,6 +36,7 @@ favorites = addFavoriteSection(favorites, { ...source, title: "更新后的节�
 assert.equal(favorites.length, 1);
 assert.equal(favorites[0].title, "更新后的节目");
 assert.equal(favorites[0].addedAt, 1000);
+assert.equal("total" in favorites[0], false);
 assert.equal(isFavoriteSection(favorites, source), true);
 assert.deepEqual(removeFavoriteSection(favorites, "9:season:101"), []);
 assert.deepEqual(normalizeFavoriteSections([{ ...source, addedAt: 1 }, { ...source, addedAt: 2 }, { type: "all" }]).map(item => item.key), ["9:season:101"]);

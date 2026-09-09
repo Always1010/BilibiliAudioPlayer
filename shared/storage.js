@@ -5,6 +5,7 @@ import {
   cloneDefaultPlayer,
   cloneDefaultSettings
 } from "./constants.js";
+import { normalizeFavoriteSections } from "../services/favorite-sections.js";
 
 export async function initializeStorage() {
   const stored = await chrome.storage.local.get(Object.values(STORAGE_KEYS));
@@ -31,8 +32,10 @@ export async function initializeStorage() {
   if (!Array.isArray(stored[STORAGE_KEYS.playlists])) {
     changes[STORAGE_KEYS.playlists] = [];
   }
-  if (!Array.isArray(stored[STORAGE_KEYS.favoriteSections])) {
-    changes[STORAGE_KEYS.favoriteSections] = [];
+  const favorites = normalizeFavoriteSections(stored[STORAGE_KEYS.favoriteSections]);
+  if (!Array.isArray(stored[STORAGE_KEYS.favoriteSections])
+    || JSON.stringify(stored[STORAGE_KEYS.favoriteSections]) !== JSON.stringify(favorites)) {
+    changes[STORAGE_KEYS.favoriteSections] = favorites;
   }
 
   if (Object.keys(changes).length) {
@@ -50,7 +53,7 @@ export async function getAppState() {
     updateState: stored[STORAGE_KEYS.updateState] ?? {},
     subscriptions: stored[STORAGE_KEYS.subscriptions] ?? {},
     playlists: stored[STORAGE_KEYS.playlists] ?? [],
-    favoriteSections: stored[STORAGE_KEYS.favoriteSections] ?? []
+    favoriteSections: normalizeFavoriteSections(stored[STORAGE_KEYS.favoriteSections])
   };
 }
 
