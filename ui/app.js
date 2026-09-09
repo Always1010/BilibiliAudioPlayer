@@ -162,7 +162,7 @@ function sidebar() {
   const workCount = cacheWorkCount();
   return `<aside class="sidebar" aria-label="主导航">
     <button class="nav-button ${ui.view === "playlists" ? "active" : ""}" type="button" data-action="show-playlists">${symbol("☷")}我的播放列表<span class="nav-badge subtle">${ui.app?.playlists?.length ?? 0}</span></button>
-    <button class="nav-button ${ui.view === "downloads" ? "active" : ""}" type="button" data-action="show-downloads">${symbol("⇩")}缓存管理${workCount ? `<span class="nav-badge" aria-label="${workCount} 个缓存任务">${workCount}</span>` : ""}</button>
+    <button class="nav-button ${ui.view === "downloads" ? "active" : ""}" type="button" data-action="show-downloads">${symbol("⇩")}缓存管理<span class="nav-badge" data-role="cache-nav-count" aria-label="${workCount} 个缓存任务" ${workCount ? "" : "hidden"}>${workCount || ""}</span></button>
     <button class="nav-button ${ui.view === "settings" ? "active" : ""}" type="button" data-action="show-settings">${symbol("⚙")}设置</button>
     <div class="sidebar-label">关注的 UP 主</div>
     ${creatorNav()}
@@ -484,6 +484,27 @@ function renderPlayer() {
   }
 }
 
+function updateCacheNavCount() {
+  const badge = root.querySelector('[data-role="cache-nav-count"]');
+  if (!badge) return;
+  const count = cacheWorkCount();
+  badge.textContent = count ? String(count) : "";
+  badge.hidden = !count;
+  badge.setAttribute("aria-label", `${count} 个缓存任务`);
+}
+
+function renderCacheState() {
+  updateCacheNavCount();
+  if (ui.view === "downloads") {
+    const content = root.querySelector(".content");
+    if (content) {
+      content.innerHTML = mainContent();
+      applyIconTooltips(content);
+    }
+  }
+  renderCacheToast();
+}
+
 function queueContextForSection(section) {
   return {
     kind: section.type,
@@ -775,7 +796,7 @@ async function cacheTracks(tracks, section) {
   ui.notice = `已将 ${contextual.length} 个作品加入缓存队列。`;
   showCacheToast(`已将 ${contextual.length} 个作品加入缓存队列`, snapshot);
   await refreshCacheInfo();
-  render();
+  renderCacheState();
 }
 
 async function cachePlaylistArchive(playlist) {
@@ -794,12 +815,12 @@ async function cachePlaylistArchive(playlist) {
   ui.notice = `“${playlist.name}”的 ${tracks.length} 个作品已加入列表归档队列；已有其他本地副本时会优先复制。`;
   showCacheToast(`已将 ${tracks.length} 个作品加入“${playlist.name}”缓存队列`, snapshot);
   await refreshCacheInfo();
-  render();
+  renderCacheState();
 }
 
 async function cacheWholeSection(section) {
   ui.notice = `正在读取“${section.title}”的全部作品……`;
-  render();
+  renderCacheState();
   const pageSize = 100;
   let page = 1;
   let accepted = 0;
@@ -826,14 +847,15 @@ async function cacheWholeSection(section) {
     ui.cacheInfo = { ...(ui.cacheInfo ?? {}), ...snapshot };
     accepted += listing.items.length;
     ui.notice = `正在加入缓存队列：${Math.min(accepted, total)} / ${total}`;
-    render();
+    showCacheToast(`已将 ${Math.min(accepted, total)} 个作品加入缓存队列`, snapshot);
+    renderCacheState();
     if (listing.items.length < pageSize || accepted >= total) break;
     page += 1;
   }
   ui.notice = `“${section.title}”的 ${Math.min(accepted, total)} 个作品已加入缓存队列。`;
   showCacheToast(`已将 ${Math.min(accepted, total)} 个作品加入缓存队列`, ui.cacheInfo);
   await refreshCacheInfo();
-  render();
+  renderCacheState();
 }
 
 root.addEventListener("submit", event => {
@@ -1188,9 +1210,9 @@ chrome.runtime.onMessage.addListener(message => {
     ui.cacheInfo = { ...(ui.cacheInfo ?? {}), ...message.cache };
     ui.cacheActivity = message.cache.activity ?? message.cache;
     if (["completed", "failed", "idle"].includes(message.cache.status)) {
-      refreshCacheInfo().then(() => render());
-    } else if (ui.view === "downloads" || ["started", "preparing", "skipped"].includes(message.cache.status)) {
-      render();
+      refreshCacheInfo().then(() => renderCacheState());
+    } else {
+      renderCacheState();
     }
   }
 });
