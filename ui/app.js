@@ -3,6 +3,7 @@ import { formatDate, formatDuration, toErrorMessage } from "../shared/utils.js";
 import { chooseCacheDirectory } from "../services/file-store.js";
 import { filterTracksByKeyword } from "../services/track-search.js";
 import { playbackSourceLabel } from "../services/playback-source.js";
+import { playlistItemToTrack } from "../services/playlists.js";
 
 const root = document.getElementById("app");
 const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
@@ -16,6 +17,8 @@ const ui = {
   detailPage: 1,
   trackSearchKeyword: "",
   queueOpen: false,
+  activePlaylistId: null,
+  playlistPicker: null,
   expanded: new Set(["all"]),
   searchResults: [],
   searchKeyword: "",
@@ -112,6 +115,7 @@ function sidebar() {
   const workCount = cacheWorkCount();
   return `<aside class="sidebar" aria-label="主导航">
     <button class="nav-button ${ui.view === "creator" || ui.view === "detail" ? "active" : ""}" type="button" data-action="show-creator">${symbol("⌂")}UP 主主页</button>
+    <button class="nav-button ${ui.view === "playlists" ? "active" : ""}" type="button" data-action="show-playlists">${symbol("☷")}我的播放列表<span class="nav-badge subtle">${ui.app?.playlists?.length ?? 0}</span></button>
     <button class="nav-button ${ui.view === "downloads" ? "active" : ""}" type="button" data-action="show-downloads">${symbol("⇩")}缓存管理${workCount ? `<span class="nav-badge" aria-label="${workCount} 个缓存任务">${workCount}</span>` : ""}</button>
     <div class="sidebar-label">关注的 UP 主</div>
     ${creatorNav()}
@@ -135,7 +139,7 @@ function trackRows(items, section, limit = null) {
     <span class="track-index">${track.id === currentId && ui.app.player.playing ? "♫" : String(index + 1).padStart(2, "0")}</span>
     <div><div class="track-title">${escapeHtml(track.title)}</div><div class="track-subtitle">${track.bvid ? escapeHtml(track.bvid) : "视频作品"}${track.publishedAt ? ` · ${formatDate(track.publishedAt)}` : ""}</div></div>
     <span class="track-duration">${formatDuration(track.duration)}</span>
-    <div class="track-actions"><button class="icon-button" type="button" data-action="play-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="播放 ${escapeHtml(track.title)}">${symbol(track.id === currentId && ui.app.player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="enqueue-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="将 ${escapeHtml(track.title)} 添加到播放队列">${symbol("+")}</button><button class="icon-button ${cached.has(String(track.id)) ? "cached" : ""}" type="button" data-action="cache-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="${cached.has(String(track.id)) ? "已缓存" : "缓存"} ${escapeHtml(track.title)}">${symbol(cached.has(String(track.id)) ? "✓" : "⇩")}</button></div>
+    <div class="track-actions"><button class="icon-button" type="button" data-action="play-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="播放 ${escapeHtml(track.title)}">${symbol(track.id === currentId && ui.app.player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="enqueue-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="将 ${escapeHtml(track.title)} 添加到播放队列">${symbol("+")}</button><button class="icon-button" type="button" data-action="add-track-to-playlist" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="将 ${escapeHtml(track.title)} 添加到我的播放列表">${symbol("☆")}</button><button class="icon-button ${cached.has(String(track.id)) ? "cached" : ""}" type="button" data-action="cache-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="${cached.has(String(track.id)) ? "已缓存" : "缓存"} ${escapeHtml(track.title)}">${symbol(cached.has(String(track.id)) ? "✓" : "⇩")}</button></div>
   </div>`).join("");
 }
 
@@ -253,6 +257,37 @@ function downloadsPage() {
   </section>`;
 }
 
+function activePlaylist() {
+  return (ui.app?.playlists ?? []).find(playlist => playlist.id === ui.activePlaylistId) ?? null;
+}
+
+function playlistTotalDuration(playlist) {
+  return (playlist?.items ?? []).reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
+}
+
+function playlistCards() {
+  const playlists = ui.app?.playlists ?? [];
+  if (!playlists.length) return '<div class="download-placeholder"><h2>还没有播放列表</h2><p>创建一个列表，再从作品或当前播放队列中添加内容。</p></div>';
+  return `<div class="playlist-grid">${playlists.map(playlist => `<button class="playlist-card" type="button" data-action="open-playlist" data-id="${escapeHtml(playlist.id)}"><span class="playlist-card-icon">${symbol("♫")}</span><span><strong>${escapeHtml(playlist.name)}</strong><small>${playlist.items.length} 个作品 · ${formatDuration(playlistTotalDuration(playlist))}</small></span><span>${symbol("›")}</span></button>`).join("")}</div>`;
+}
+
+function playlistDetail(playlist) {
+  const tracks = playlist.items.map(playlistItemToTrack);
+  return `<section>
+    <button class="ghost-button" type="button" data-action="close-playlist">${symbol("←")}返回我的播放列表</button>
+    ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
+    ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}
+    <div class="page-heading playlist-heading"><div><h1>${escapeHtml(playlist.name)}</h1><p>${playlist.items.length} 个作品 · ${formatDuration(playlistTotalDuration(playlist))} · 更新于 ${formatDate(Math.floor(playlist.updatedAt / 1000))}</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="rename-playlist" data-id="${escapeHtml(playlist.id)}">重命名</button><button class="ghost-button danger-button" type="button" data-action="delete-playlist" data-id="${escapeHtml(playlist.id)}">删除</button><button class="primary-button" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}" ${tracks.length ? "" : "disabled"}>${symbol("▶")}播放全部</button></div></div>
+    <div class="track-table"><div class="track-table-head playlist-table-head"><span>#</span><span>作品</span><span>UP 主</span><span>时长</span><span></span></div>${tracks.length ? tracks.map((track, index) => `<div class="playlist-track-row"><span class="track-index">${String(index + 1).padStart(2, "0")}</span><button class="playlist-track-title" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}" data-index="${index}"><strong>${escapeHtml(track.title)}</strong><small>${escapeHtml(track.bvid)}</small></button><span class="playlist-creator">${escapeHtml(track.creator?.name || "未知UP主")}</span><span class="track-duration">${formatDuration(track.duration)}</span><div class="track-actions"><button class="icon-button" type="button" data-action="enqueue-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" aria-label="添加到当前队列">${symbol("+")}</button><button class="icon-button" type="button" data-action="move-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" data-to="${index - 1}" aria-label="上移" ${index === 0 ? "disabled" : ""}>${symbol("↑")}</button><button class="icon-button" type="button" data-action="move-playlist-track" data-id="${escapeHtml(playlist.id)}" data-index="${index}" data-to="${index + 1}" aria-label="下移" ${index === tracks.length - 1 ? "disabled" : ""}>${symbol("↓")}</button><button class="icon-button danger-button" type="button" data-action="remove-playlist-track" data-id="${escapeHtml(playlist.id)}" data-bvid="${escapeHtml(track.bvid)}" aria-label="从播放列表移除">${symbol("×")}</button></div></div>`).join("") : '<div class="queue-empty">这个播放列表还没有作品。</div>'}</div>
+  </section>`;
+}
+
+function playlistsPage() {
+  const playlist = activePlaylist();
+  if (playlist) return playlistDetail(playlist);
+  return `<section>${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}<div class="page-heading"><div><h1>我的播放列表</h1><p>跨 UP 主保存作品和固定播放顺序</p></div></div><form class="playlist-create-form" data-form="create-playlist"><input name="name" maxlength="80" placeholder="新播放列表名称" aria-label="新播放列表名称"><button class="primary-button" type="submit">${symbol("+")}创建</button></form>${playlistCards()}</section>`;
+}
+
 function cacheFormatText(task) {
   return task.format === "mp3" ? `MP3 ${task.bitrate} kbps` : "原始格式";
 }
@@ -304,6 +339,7 @@ function settingsPage() {
 function mainContent() {
   if (!ui.app) return '<div class="empty-state"><div class="spinner">◌</div><h1>正在启动</h1></div>';
   if (ui.view === "detail") return detailPage();
+  if (ui.view === "playlists") return playlistsPage();
   if (ui.view === "downloads") return downloadsPage();
   if (ui.view === "settings") return settingsPage();
   return creatorPage();
@@ -328,7 +364,7 @@ function playQueueMarkup() {
   const currentIndex = Number(player.queueIndex);
   const title = player.queueContext?.title || "播放队列";
   return `<section class="play-queue-drawer" aria-label="播放队列">
-    <div class="play-queue-header"><div><h2>${escapeHtml(title)}</h2><p>${queue.length ? `${currentIndex >= 0 ? currentIndex + 1 : 0} / ${queue.length}` : "队列为空"}</p></div><div><button class="ghost-button" type="button" data-action="clear-play-queue" ${queue.length ? "" : "disabled"}>清空</button><button class="icon-button" type="button" data-action="toggle-play-queue" aria-label="关闭播放队列">${symbol("×")}</button></div></div>
+    <div class="play-queue-header"><div><h2>${escapeHtml(title)}</h2><p>${queue.length ? `${currentIndex >= 0 ? currentIndex + 1 : 0} / ${queue.length}` : "队列为空"}</p></div><div><button class="plain-button" type="button" data-action="save-play-queue" ${queue.length ? "" : "disabled"}>保存为播放列表</button><button class="ghost-button" type="button" data-action="clear-play-queue" ${queue.length ? "" : "disabled"}>清空</button><button class="icon-button" type="button" data-action="toggle-play-queue" aria-label="关闭播放队列">${symbol("×")}</button></div></div>
     <div class="play-queue-list">${queue.length ? queue.map((track, index) => `<div class="play-queue-row ${index === currentIndex ? "current" : ""}" data-queue-index="${index}"><button class="queue-track-button" type="button" data-action="play-queue-index" data-index="${index}"><span class="queue-position">${index === currentIndex ? "♫" : index + 1}</span><span><strong>${escapeHtml(track.title)}</strong><small>${escapeHtml(track.creator?.name || "未知UP主")} · ${formatDuration(track.duration)}</small></span></button><div class="queue-row-actions"><button class="icon-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${index - 1}" aria-label="上移" ${index === 0 ? "disabled" : ""}>${symbol("↑")}</button><button class="icon-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${index + 1}" aria-label="下移" ${index === queue.length - 1 ? "disabled" : ""}>${symbol("↓")}</button>${index !== currentIndex && index !== currentIndex + 1 ? `<button class="queue-next-button" type="button" data-action="move-queue-item" data-index="${index}" data-to="${Math.min(currentIndex + 1, queue.length - 1)}">下一首</button>` : ""}<button class="icon-button danger-button" type="button" data-action="remove-queue-item" data-index="${index}" aria-label="移出队列">${symbol("×")}</button></div></div>`).join("") : '<div class="queue-empty">从作品列表点击“+”即可添加到这里。</div>'}</div>
   </section>`;
 }
@@ -337,8 +373,15 @@ function playerAreaMarkup() {
   return `${playQueueMarkup()}${playerMarkup()}`;
 }
 
+function playlistPickerMarkup() {
+  const picker = ui.playlistPicker;
+  if (!picker) return "";
+  const playlists = ui.app?.playlists ?? [];
+  return `<div class="modal-backdrop" data-action="close-playlist-picker"><section class="playlist-picker" role="dialog" aria-modal="true" aria-label="添加到播放列表"><div class="playlist-picker-header"><div><h2>添加到播放列表</h2><p>${escapeHtml(picker.label)} · ${picker.tracks.length} 个作品</p></div><button class="icon-button" type="button" data-action="close-playlist-picker" aria-label="关闭">${symbol("×")}</button></div><div class="playlist-picker-list">${playlists.map(playlist => `<button type="button" data-action="add-to-playlist" data-id="${escapeHtml(playlist.id)}"><span>${escapeHtml(playlist.name)}</span><small>${playlist.items.length} 个作品</small></button>`).join("") || '<div class="queue-empty">还没有播放列表，可以在下方新建。</div>'}</div><form class="playlist-create-form modal-create" data-form="create-and-add-playlist"><input name="name" maxlength="80" placeholder="新播放列表名称" aria-label="新播放列表名称"><button class="primary-button" type="submit">新建并添加</button></form></section></div>`;
+}
+
 function render() {
-  root.innerHTML = `<div class="shell">${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div></div>`;
+  root.innerHTML = `<div class="shell">${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}</div>`;
 }
 
 function renderPlayer() {
@@ -509,6 +552,29 @@ async function playerCommand(command, payload = {}) {
   }
 }
 
+async function playlistCommand(command, payload = {}) {
+  ui.app.playlists = await send(MESSAGE.playlistCommand, { command, payload });
+  return ui.app.playlists;
+}
+
+function openPlaylistPicker(tracks, label) {
+  const valid = (tracks ?? []).filter(track => track?.bvid);
+  if (!valid.length) throw new Error("没有可添加到播放列表的作品");
+  ui.playlistPicker = { tracks: valid, label };
+  render();
+}
+
+async function addPickerTracks(playlistId) {
+  const picker = ui.playlistPicker;
+  if (!picker) return;
+  const before = ui.app.playlists.find(playlist => playlist.id === playlistId)?.items.length ?? 0;
+  await playlistCommand("addTracks", { playlistId, tracks: picker.tracks });
+  const after = ui.app.playlists.find(playlist => playlist.id === playlistId)?.items.length ?? before;
+  ui.playlistPicker = null;
+  ui.notice = `已添加 ${after - before} 个作品，重复作品已自动跳过。`;
+  render();
+}
+
 async function refreshCacheInfo() {
   try {
     ui.cacheInfo = await send(MESSAGE.cacheCommand, { command: "status" });
@@ -575,9 +641,18 @@ root.addEventListener("submit", event => {
   const form = event.target.closest("[data-form]");
   if (!form) return;
   event.preventDefault();
-  const keyword = new FormData(form).get("keyword") ?? "";
+  const formData = new FormData(form);
+  const keyword = formData.get("keyword") ?? formData.get("name") ?? "";
   if (form.dataset.form === "track-search") searchDetailTracks(keyword);
   else if (form.dataset.form === "search") search(keyword);
+  else if (form.dataset.form === "create-playlist") {
+    playlistCommand("create", { name: keyword }).then(() => {
+      ui.notice = `已创建播放列表“${String(keyword).trim()}”。`;
+      render();
+    }).catch(error => { ui.error = toErrorMessage(error); render(); });
+  } else if (form.dataset.form === "create-and-add-playlist") {
+    playlistCommand("create", { name: keyword }).then(playlists => addPickerTracks(playlists.at(-1).id)).catch(error => { ui.error = toErrorMessage(error); render(); });
+  }
 });
 
 root.addEventListener("change", async event => {
@@ -624,6 +699,7 @@ root.addEventListener("click", async event => {
   const action = button.dataset.action;
   try {
     if (action === "show-creator") { ui.view = "creator"; ui.error = ""; render(); }
+    else if (action === "show-playlists") { ui.view = "playlists"; ui.activePlaylistId = null; ui.error = ""; render(); }
     else if (action === "show-downloads") { ui.view = "downloads"; render(); }
     else if (action === "show-settings") { ui.view = "settings"; render(); }
     else if (action === "open-full") await send(MESSAGE.openPlayer);
@@ -636,6 +712,48 @@ root.addEventListener("click", async event => {
     else if (action === "remove-queue-item") await playerCommand("removeQueueItem", { index: Number(button.dataset.index) });
     else if (action === "move-queue-item") await playerCommand("reorderQueue", { fromIndex: Number(button.dataset.index), toIndex: Number(button.dataset.to) });
     else if (action === "clear-play-queue") await playerCommand("clearQueue");
+    else if (action === "save-play-queue") openPlaylistPicker(ui.app.player.queue ?? [], "当前播放队列");
+    else if (action === "close-playlist-picker") {
+      if (event.target === button || button.closest(".playlist-picker-header")) {
+        ui.playlistPicker = null;
+        render();
+      }
+    }
+    else if (action === "add-to-playlist") await addPickerTracks(button.dataset.id);
+    else if (action === "open-playlist") { ui.activePlaylistId = button.dataset.id; ui.notice = ""; render(); }
+    else if (action === "close-playlist") { ui.activePlaylistId = null; render(); }
+    else if (action === "rename-playlist") {
+      const playlist = ui.app.playlists.find(item => item.id === button.dataset.id);
+      const name = window.prompt("新的播放列表名称", playlist?.name || "");
+      if (name != null) { await playlistCommand("rename", { playlistId: button.dataset.id, name }); render(); }
+    }
+    else if (action === "delete-playlist") {
+      const playlist = ui.app.playlists.find(item => item.id === button.dataset.id);
+      if (window.confirm(`确定删除播放列表“${playlist?.name || "未命名"}”吗？不会删除缓存文件。`)) {
+        await playlistCommand("delete", { playlistId: button.dataset.id });
+        ui.activePlaylistId = null;
+        ui.notice = "播放列表已删除。";
+        render();
+      }
+    }
+    else if (action === "play-playlist") {
+      const playlist = ui.app.playlists.find(item => item.id === button.dataset.id);
+      const queue = playlist.items.map(playlistItemToTrack);
+      await playerCommand("playQueue", { queue, index: Number(button.dataset.index) || 0, queueContext: { kind: "playlist", id: playlist.id, title: `我的播放列表 · ${playlist.name}` } });
+    }
+    else if (action === "enqueue-playlist-track") {
+      const playlist = ui.app.playlists.find(item => item.id === button.dataset.id);
+      const track = playlistItemToTrack(playlist.items[Number(button.dataset.index)]);
+      await playerCommand("appendQueue", { tracks: [track], queueContext: { kind: "manual", title: "手动播放队列" } });
+    }
+    else if (action === "move-playlist-track") {
+      await playlistCommand("reorderTrack", { playlistId: button.dataset.id, fromIndex: Number(button.dataset.index), toIndex: Number(button.dataset.to) });
+      render();
+    }
+    else if (action === "remove-playlist-track") {
+      await playlistCommand("removeTrack", { playlistId: button.dataset.id, bvid: button.dataset.bvid });
+      render();
+    }
     else if (action === "toggle-section") {
       ui.expanded.has(button.dataset.key) ? ui.expanded.delete(button.dataset.key) : ui.expanded.add(button.dataset.key);
       render();
@@ -698,6 +816,12 @@ root.addEventListener("click", async event => {
         ui.notice = `已将“${track.title}”添加到播放队列。`;
         render();
       }
+    }
+    else if (action === "add-track-to-playlist") {
+      const section = findSection(button.dataset.sectionKey) ?? ui.activeSection;
+      const source = ui.view === "detail" ? ui.detailData?.items ?? [] : section?.items ?? [];
+      const track = source.find(item => String(item.id) === String(button.dataset.trackId));
+      if (track) openPlaylistPicker([trackWithContext(track, section)], track.title);
     }
     else if (["pause", "resume", "next", "previous"].includes(action)) await playerCommand(action);
     else if (action === "change-mode") {
