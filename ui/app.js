@@ -8,9 +8,10 @@ import { parsePlaylistExport, serializePlaylistExport } from "../services/playli
 import { cacheCoverageForTracks, cacheRecordBytes } from "../services/cache-records.js";
 import { loadAllSectionPages } from "../services/section-pagination.js";
 import { playbackModeLabel } from "../services/playback-mode.js";
-import { PLAYBACK_RATE_MAX, PLAYBACK_RATE_MIN, PLAYBACK_RATE_PRESETS, PLAYBACK_RATE_STEP, normalizePlaybackRate, playbackRateLabel } from "../services/playback-rate.js";
+import { PLAYBACK_RATE_MAX, PLAYBACK_RATE_MIN, PLAYBACK_RATE_STEP, normalizePlaybackRate, playbackRateLabel } from "../services/playback-rate.js";
 import { playerStructureKey } from "../services/player-render-policy.js";
 import { isFavoriteSection } from "../services/favorite-sections.js";
+import { normalizeTrackSortDirection, sortTracksByPublishedAt } from "../services/track-order.js";
 
 const root = document.getElementById("app");
 const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
@@ -29,7 +30,6 @@ const ui = {
   trackSearchKeyword: "",
   queueOpen: false,
   rateOpen: false,
-  rateDraft: null,
   activePlaylistId: null,
   playlistPicker: null,
   playlistImportPreview: null,
@@ -208,8 +208,17 @@ function trackWithContext(track, section) {
   };
 }
 
+function currentTrackSortDirection() {
+  return normalizeTrackSortDirection(ui.app?.settings?.sectionSortDirection);
+}
+
+function trackSortLabel() {
+  return currentTrackSortDirection() === "desc" ? "发布时间：倒序" : "发布时间：正序";
+}
+
 function trackRows(items, section, limit = null) {
-  const visible = limit ? items.slice(0, limit) : items;
+  const visibleItems = sortTracksByPublishedAt(items, currentTrackSortDirection());
+  const visible = limit ? visibleItems.slice(0, limit) : visibleItems;
   const currentId = ui.app?.player?.currentTrack?.id;
   const cached = new Set((ui.cacheInfo?.records ?? []).map(record => String(record.trackId)));
   return visible.map((track, index) => `<div class="track-row ${track.id === currentId ? "playing" : ""}">
@@ -326,7 +335,7 @@ function emptyPage() {
 function detailPage() {
   const section = ui.activeSection;
   if (!section) return creatorPage();
-  const items = ui.detailData?.items ?? section.items ?? [];
+  const items = sortTracksByPublishedAt(ui.detailData?.items ?? section.items ?? [], currentTrackSortDirection());
   const visibleItems = filterTracksByKeyword(items, ui.trackSearchKeyword);
   const total = ui.detailData?.total ?? section.total;
   const searchingTracks = Boolean(ui.trackSearchKeyword);
@@ -344,7 +353,7 @@ function detailPage() {
       ${image(section.cover, section.title, "detail-cover")}
       <div class="detail-copy"><h1>${escapeHtml(section.title)}</h1><div class="muted">${typeLabel} · ${total} 个作品${creator?.name ? ` · ${escapeHtml(creator.name)}` : ""}</div><div class="detail-actions"><button class="primary-button" type="button" data-action="play-detail">${symbol("▶")}播放全部</button><button class="plain-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}">${symbol("⇩")}缓存全部</button>${section.type !== "all" ? `<button class="plain-button" type="button" data-action="toggle-active-section-favorite">${symbol(favorite ? "★" : "☆")}${favorite ? "已收藏" : "收藏"}</button>` : ""}${canFollow ? `<label class="switch"><input type="checkbox" data-action="follow-section" ${following ? "checked" : ""}>自动追更并缓存</label>` : ""}</div></div>
     </div>
-    <form class="track-search-form" data-form="track-search"><input class="track-search-input" name="keyword" autocomplete="off" placeholder="搜索当前${typeLabel}中的作品" value="${escapeHtml(ui.trackSearchKeyword)}" aria-label="搜索当前${typeLabel}中的作品"><button class="plain-button" type="submit">${symbol("⌕")}搜索</button>${searchingTracks ? '<button class="ghost-button" type="button" data-action="clear-track-search">清除</button>' : ""}</form>
+    <div class="track-list-toolbar"><form class="track-search-form" data-form="track-search"><input class="track-search-input" name="keyword" autocomplete="off" placeholder="搜索当前${typeLabel}中的作品" value="${escapeHtml(ui.trackSearchKeyword)}" aria-label="搜索当前${typeLabel}中的作品"><button class="plain-button" type="submit">${symbol("⌕")}搜索</button>${searchingTracks ? '<button class="ghost-button" type="button" data-action="clear-track-search">清除</button>' : ""}</form><button class="plain-button sort-button" type="button" data-action="toggle-sort-order" aria-label="切换作品发布时间排序">${symbol(currentTrackSortDirection() === "desc" ? "↓" : "↑")}${trackSortLabel()}</button></div>
     ${searchingTracks && !ui.loading ? `<div class="track-search-result-bar"><div class="track-search-summary">“${escapeHtml(ui.trackSearchKeyword)}”找到 ${visibleItems.length} 个作品 · 已检索 ${items.length} / ${total}</div>${visibleItems.length ? `<div class="track-search-actions"><button class="plain-button" type="button" data-action="play-search-results">${symbol("▶")}播放搜索结果</button><button class="plain-button" type="button" data-action="save-search-results">${symbol("☆")}保存到我的播放列表</button></div>` : ""}</div>` : ""}
     <div class="track-table"><div class="track-table-head"><span>#</span><span>作品</span><span>发布时间</span><span>时长</span><span></span></div>${ui.loading ? '<div class="notice">正在读取并搜索全部作品……</div>' : visibleItems.length ? trackRows(visibleItems, { ...section, items: visibleItems }) : `<div class="notice">${searchingTracks ? "没有找到匹配的作品，请尝试其他关键词。" : "该栏目暂无作品。"}</div>`}${!ui.loading && items.length < total ? `<button class="more-button" type="button" data-action="load-more">继续加载（已显示 ${items.length} / ${total}）</button>` : ""}</div>
   </section>`;
@@ -511,12 +520,11 @@ function playerMarkup() {
   const track = player.currentTrack;
   const modeLabel = playbackModeLabel(player.mode);
   const playbackRate = normalizePlaybackRate(player.playbackRate);
-  const displayedRate = normalizePlaybackRate(ui.rateDraft ?? playbackRate);
   const progressMax = Math.max(1, Number(player.duration) || Number(track?.duration) || 1);
   const sourceLabel = playbackSourceLabel(player.source, player.loading);
   return `<footer class="player-bar">
     <div class="now-playing">${image(track?.cover, track?.title ?? "尚未播放", "now-cover")}<div class="now-copy"><div class="now-title">${escapeHtml(track?.title ?? "选择一个作品开始播放")}</div><div class="now-meta"><span class="muted">${escapeHtml(track?.creator?.name ?? "哔哩音频")}</span>${sourceLabel ? `<span class="source-badge ${player.source?.kind === "cache" ? "local" : ""}">${escapeHtml(sourceLabel)}</span>` : ""}${player.error ? `<span class="player-error">${escapeHtml(player.error)}</span>` : ""}</div></div></div>
-    <div class="player-controls"><button class="icon-button" type="button" data-action="change-mode" aria-label="${modeLabel}">${symbol(player.mode === "shuffle" ? "⤨" : player.mode === "single" ? "①" : "↻")}</button><button class="icon-button" type="button" data-action="previous" aria-label="上一首">${symbol("◀|")}</button><button class="play-main" type="button" data-action="${player.playing ? "pause" : "resume"}" aria-label="${player.playing ? "暂停" : "播放"}">${symbol(player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="next" aria-label="下一首">${symbol("|▶")}</button><div class="speed-control"><button class="speed-toggle ${ui.rateOpen ? "active" : ""}" type="button" data-action="toggle-rate" aria-expanded="${ui.rateOpen}" aria-label="播放倍速，当前 ${playbackRateLabel(playbackRate)}">${playbackRateLabel(playbackRate)}</button>${ui.rateOpen ? `<section class="speed-panel" aria-label="播放倍速"><div class="speed-panel-header"><strong>播放倍速</strong><output class="speed-value">${playbackRateLabel(displayedRate)}</output></div><div class="speed-presets">${PLAYBACK_RATE_PRESETS.map(rate => `<button class="speed-preset ${rate === playbackRate ? "active" : ""}" type="button" data-action="set-rate" data-rate="${rate}" aria-pressed="${rate === playbackRate}">${playbackRateLabel(rate)}</button>`).join("")}</div><label class="speed-slider-label"><span>精细调节</span><input class="speed-input" type="range" min="${PLAYBACK_RATE_MIN}" max="${PLAYBACK_RATE_MAX}" step="${PLAYBACK_RATE_STEP}" value="${displayedRate}" data-action="set-rate-slider" aria-label="精细调节播放倍速，当前 ${playbackRateLabel(displayedRate)}"></label></section>` : ""}</div><button class="queue-toggle ${ui.queueOpen ? "active" : ""}" type="button" data-action="toggle-play-queue" aria-expanded="${ui.queueOpen}" aria-label="查看播放队列">${symbol("☷")}<span>${player.queue?.length ?? 0}</span></button></div>
+    <div class="player-controls"><button class="icon-button" type="button" data-action="change-mode" aria-label="${modeLabel}">${symbol(player.mode === "shuffle" ? "⤨" : player.mode === "single" ? "①" : "↻")}</button><button class="icon-button" type="button" data-action="previous" aria-label="上一首">${symbol("◀|")}</button><button class="play-main" type="button" data-action="${player.playing ? "pause" : "resume"}" aria-label="${player.playing ? "暂停" : "播放"}">${symbol(player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="next" aria-label="下一首">${symbol("|▶")}</button><div class="speed-control"><button class="speed-toggle ${ui.rateOpen ? "active" : ""}" type="button" data-action="toggle-rate" aria-expanded="${ui.rateOpen}" aria-label="播放倍速，当前 ${playbackRateLabel(playbackRate)}">${playbackRateLabel(playbackRate)}</button>${ui.rateOpen ? `<section class="speed-panel" aria-label="播放倍速"><div class="speed-range"><span aria-hidden="true">${PLAYBACK_RATE_MIN}×</span><input class="speed-input" type="range" min="${PLAYBACK_RATE_MIN}" max="${PLAYBACK_RATE_MAX}" step="${PLAYBACK_RATE_STEP}" value="${playbackRate}" data-action="set-rate-slider" aria-label="精细调节播放倍速，当前 ${playbackRateLabel(playbackRate)}"><span aria-hidden="true">${PLAYBACK_RATE_MAX}×</span></div></section>` : ""}</div><button class="queue-toggle ${ui.queueOpen ? "active" : ""}" type="button" data-action="toggle-play-queue" aria-expanded="${ui.queueOpen}" aria-label="查看播放队列">${symbol("☷")}<span>${player.queue?.length ?? 0}</span></button></div>
     <div class="progress-area"><input class="progress-input" type="range" min="0" max="${progressMax}" value="${Math.min(Number(player.currentTime) || 0, progressMax)}" step="1" data-action="seek" aria-label="播放进度"><span class="time-label">${formatDuration(player.currentTime)} / ${formatDuration(progressMax)}</span></div>
   </footer>`;
 }
@@ -577,11 +585,11 @@ function updatePlayerProgress(slot) {
   if (label) label.textContent = `${formatDuration(player.currentTime)} / ${formatDuration(progressMax)}`;
 }
 
-function renderPlayer() {
+function renderPlayer({ force = false } = {}) {
   const slot = root.querySelector(".player-slot");
   if (slot) {
     const nextKey = playerStructureKey(ui.app?.player, { queueOpen: ui.queueOpen });
-    if (nextKey === renderedPlayerKey) {
+    if (!force && nextKey === renderedPlayerKey) {
       updatePlayerProgress(slot);
       return;
     }
@@ -652,7 +660,7 @@ function queueContextForSection(section) {
 function currentSearchResults() {
   if (!ui.activeSection || !ui.trackSearchKeyword) return [];
   const items = ui.detailData?.items ?? ui.activeSection.items ?? [];
-  return filterTracksByKeyword(items, ui.trackSearchKeyword);
+  return sortTracksByPublishedAt(filterTracksByKeyword(items, ui.trackSearchKeyword), currentTrackSortDirection());
 }
 
 function searchQueueContext() {
@@ -867,7 +875,7 @@ async function loadCompleteSection(section) {
 }
 
 function queueForSection(section, items = section.items ?? []) {
-  return items.map(track => trackWithContext(track, section));
+  return sortTracksByPublishedAt(items, currentTrackSortDirection()).map(track => trackWithContext(track, section));
 }
 
 async function playerCommand(command, payload = {}) {
@@ -1103,6 +1111,11 @@ root.addEventListener("focusin", event => {
 document.addEventListener("keydown", event => {
   const target = event.target;
   const editable = Boolean(target?.matches?.("input, textarea, select, [contenteditable=\"true\"]") || target?.isContentEditable);
+  if (event.key === "Escape" && ui.rateOpen) {
+    ui.rateOpen = false;
+    renderPlayer({ force: true });
+    return;
+  }
   if (event.key === "Escape" && ui.searchOpen) {
     ui.searchOpen = false;
     render();
@@ -1169,10 +1182,6 @@ root.addEventListener("input", event => {
   }
   if (event.target.matches('[data-action="set-rate-slider"]')) {
     const rate = normalizePlaybackRate(event.target.value);
-    ui.rateDraft = rate;
-    const panel = event.target.closest(".speed-panel");
-    const value = panel?.querySelector(".speed-value");
-    if (value) value.textContent = playbackRateLabel(rate);
     event.target.setAttribute("aria-label", `精细调节播放倍速，当前 ${playbackRateLabel(rate)}`);
   }
 });
@@ -1180,7 +1189,6 @@ root.addEventListener("input", event => {
 root.addEventListener("change", event => {
   if (event.target.matches('[data-action="set-rate-slider"]')) {
     const rate = normalizePlaybackRate(event.target.value);
-    ui.rateDraft = null;
     playerCommand("rate", { rate });
   }
 });
@@ -1242,6 +1250,10 @@ root.addEventListener("dragend", () => {
 });
 
 root.addEventListener("click", async event => {
+  if (ui.rateOpen && !event.target.closest(".speed-control")) {
+    ui.rateOpen = false;
+    renderPlayer({ force: true });
+  }
   if (ui.searchOpen && !event.target.closest(".search-form")) {
     ui.searchOpen = false;
     render();
@@ -1313,19 +1325,13 @@ root.addEventListener("click", async event => {
     else if (action === "open-full") await send(MESSAGE.openPlayer);
     else if (action === "toggle-play-queue") {
       ui.rateOpen = false;
-      ui.rateDraft = null;
       ui.queueOpen = !ui.queueOpen;
       renderPlayer();
       if (ui.queueOpen) requestAnimationFrame(() => root.querySelector(".play-queue-row.current")?.scrollIntoView({ block: "nearest" }));
     }
     else if (action === "toggle-rate") {
       ui.rateOpen = !ui.rateOpen;
-      ui.rateDraft = null;
-      renderPlayer();
-    }
-    else if (action === "set-rate") {
-      ui.rateDraft = null;
-      await playerCommand("rate", { rate: normalizePlaybackRate(button.dataset.rate) });
+      renderPlayer({ force: true });
     }
     else if (action === "play-queue-index") await playerCommand("playIndex", { index: Number(button.dataset.index) });
     else if (action === "remove-queue-item") await playerCommand("removeQueueItem", { index: Number(button.dataset.index) });
@@ -1456,6 +1462,12 @@ root.addEventListener("click", async event => {
     else if (action === "play-detail") {
       const items = await loadCompleteSection(ui.activeSection);
       await playerCommand("playQueue", { queue: queueForSection(ui.activeSection, items), index: 0, queueContext: queueContextForSection(ui.activeSection) });
+    }
+    else if (action === "toggle-sort-order") {
+      const next = currentTrackSortDirection() === "desc" ? "asc" : "desc";
+      ui.app.settings = await send(MESSAGE.saveSettings, { patch: { sectionSortDirection: next } });
+      ui.notice = `已切换为${trackSortLabel()}，合集、系列和全部作品会统一使用此顺序。`;
+      render();
     }
     else if (action === "play-track") {
       const section = findSection(button.dataset.sectionKey) ?? ui.activeSection;
