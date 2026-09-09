@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "哔哩音频",
   "short_name": "哔哩音频",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "将哔哩哔哩 UP 主的公开视频作为纯音频播放和管理。",
   "minimum_chrome_version": "116",
   "icons": {
