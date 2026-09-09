@@ -113,7 +113,13 @@ async function removeCreator(id) {
 async function loadCreator(id, force = false) {
   const state = await getAppState();
   const cached = state.creatorContent[id];
-  if (!force && cached && Date.now() - cached.loadedAt < 10 * 60 * 1000) return cached;
+  const cachedPreviewItems = [
+    ...(cached?.all?.items ?? []),
+    ...(cached?.containers?.seasons ?? []).flatMap(item => item.preview ?? []),
+    ...(cached?.containers?.series ?? []).flatMap(item => item.preview ?? [])
+  ];
+  const cachedPreviewHasMissingDurations = cachedPreviewItems.some(item => Number(item.duration) <= 0);
+  if (!force && cached && !cachedPreviewHasMissingDurations && Date.now() - cached.loadedAt < 10 * 60 * 1000) return cached;
 
   const knownCreator = state.creators.find(item => String(item.id) === String(id));
   const results = await Promise.allSettled([

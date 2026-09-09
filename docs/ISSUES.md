@@ -385,3 +385,13 @@
 - 数据边界：新加载的全部作品会立即使用正确时长；已经保存为零的播放列表项目会在后台补全成功后更新，无法访问或已删除的作品不会被伪造时长。
 - 验证方式：新增投稿接口 `length` 字段 `01:23` 到 83 秒的测试，以及历史播放列表零时长补全测试；执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.7.6 JSON 检查和 `git diff --check`。
 - 相关文件：`services/bilibili.js`、`services/playlists.js`、`background/service-worker.js`、`ui/app.js`、`tests/bilibili-videos.test.mjs`、`tests/playlists.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-037：UP 主主页摘要仍显示零时长
+
+- 日期：2026-09-09
+- 状态：已解决
+- 现象：进入 UP 主主页后，“全部作品”摘要列表仍显示 `00:00`，但点击进入详情页后时长正常。
+- 原因：修复字段解析后，扩展存储中的旧版 `creatorContent` 仍被 10 分钟缓存策略直接复用；主页摘要读取的是这份旧缓存，详情页则重新调用栏目接口，因此两处显示不一致。
+- 解决方案：加载 UP 主主页时检查“全部作品”、合集和系列预览中的时长；只要发现零时长摘要，就跳过短期缓存并重新读取最新接口数据。正常缓存仍保持 10 分钟复用，避免无意义请求。
+- 验证方式：执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.7.7 JSON 检查和 `git diff --check`；确认旧摘要下次打开主页会自动刷新为真实时长。
+- 相关文件：`background/service-worker.js`、`manifest.json`、`README.md`、`docs/ISSUES.md`
