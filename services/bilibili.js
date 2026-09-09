@@ -124,8 +124,9 @@ export async function listCreatorVideos(mid, page = 1, pageSize = 30) {
 }
 
 export async function listCreatorContainers(mid, page = 1, pageSize = 20) {
+  const safePageSize = Math.max(1, Math.min(20, Number(pageSize) || 20));
   const data = await fetchJson("/x/polymer/web-space/seasons_series_list", {
-    params: { mid, page_num: page, page_size: pageSize }
+    params: { mid, page_num: page, page_size: safePageSize }
   });
   const lists = data?.items_lists ?? {};
   const seasons = (lists.seasons_list ?? []).map(item => ({
@@ -148,7 +149,34 @@ export async function listCreatorContainers(mid, page = 1, pageSize = 20) {
     updatedAt: Number(item.meta.last_update_ts ?? 0),
     preview: (item.archives ?? []).map(normalizeVideo)
   }));
-  return { seasons, series, total: Number(lists.page?.total ?? seasons.length + series.length) };
+  return {
+    seasons,
+    series,
+    page: Number(lists.page?.page_num ?? page),
+    pageSize: safePageSize,
+    total: Number(lists.page?.total ?? seasons.length + series.length)
+  };
+}
+
+export async function listAllCreatorContainers(mid, pageSize = 20) {
+  const safePageSize = Math.max(1, Math.min(20, Number(pageSize) || 20));
+  const firstPage = await listCreatorContainers(mid, 1, safePageSize);
+  const seasons = [...firstPage.seasons];
+  const series = [...firstPage.series];
+  const totalPages = Math.max(1, Math.ceil(firstPage.total / safePageSize));
+
+  for (let page = 2; page <= totalPages; page += 1) {
+    const nextPage = await listCreatorContainers(mid, page, safePageSize);
+    seasons.push(...nextPage.seasons);
+    series.push(...nextPage.series);
+  }
+
+  const uniqueById = items => [...new Map(items.map(item => [item.id, item])).values()];
+  return {
+    seasons: uniqueById(seasons),
+    series: uniqueById(series),
+    total: firstPage.total
+  };
 }
 
 export async function listContainerVideos(mid, type, id, page = 1, pageSize = 30) {
