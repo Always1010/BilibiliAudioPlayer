@@ -85,3 +85,13 @@
 - 解决方案：离屏缓存状态现在提供当前任务、等待任务列表、最近 30 条完成/跳过/失败结果和当前阶段；状态接口与实时事件使用同一快照。缓存管理入口增加实时数量徽标，缓存管理页新增“缓存队列”和“最近任务”区域，显示作品、UP 主、格式、码率、等待顺序、进度及失败原因；重新进入页面时会向后台读取现有队列。
 - 验证方式：新增队列状态测试，验证任务快照只携带 UI 所需字段、进行中状态不进入历史、终态结果正确记录且历史限制为 30 条；执行全部 JavaScript 测试、语法检查和 `git diff --check`。
 - 相关文件：`services/cache-queue-state.js`、`offscreen/offscreen.js`、`ui/app.js`、`ui/app.css`、`tests/cache-queue.test.mjs`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-009：扩展图标未显示
+
+- 日期：2026-09-09
+- 状态：已解决
+- 现象：浏览器工具栏和扩展管理页没有显示项目自定义图标，页面品牌区域仍使用文本音符占位。
+- 原因：清单未声明 `icons` 与 `action.default_icon`，项目也没有可供 Edge/Chrome 加载的 PNG 图标资源。扩展清单图标采用 PNG 资源可兼容当前目标浏览器；页面本身则需要单独声明 favicon 或渲染图片。
+- 解决方案：新增 16、32、48、128 像素 PNG 图标，同时配置清单图标、页面 favicon，并将侧边栏顶部和空状态品牌标记统一替换为图标；保留 PowerShell 生成脚本以便后续调整后重新生成资源。
+- 验证方式：新增图标测试，校验清单路径、PNG 签名及每个文件的实际尺寸；重新执行全部 JavaScript 测试、语法检查、清单 JSON 解析和 `git diff --check`。
+- 相关文件：`manifest.json`、`icons/icon16.png`、`icons/icon32.png`、`icons/icon48.png`、`icons/icon128.png`、`scripts/generate-icons.ps1`、`sidepanel.html`、`player.html`、`ui/app.js`、`ui/app.css`、`tests/manifest-icons.test.mjs`、`docs/ISSUES.md`

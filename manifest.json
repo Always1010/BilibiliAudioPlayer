@@ -5,8 +5,20 @@
   "version": "0.2.0",
   "description": "将哔哩哔哩 UP 主的公开视频作为纯音频播放和管理。",
   "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
-    "default_title": "打开哔哩音频侧边栏"
+    "default_title": "打开哔哩音频侧边栏",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "background": {
     "service_worker": "background/service-worker.js",
