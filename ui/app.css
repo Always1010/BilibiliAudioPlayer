@@ -262,6 +262,7 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .volume-toggle { width: 34px; height: 34px; display: grid; place-items: center; padding: 0; color: var(--muted); border: 0; border-radius: 9px; background: transparent; }
 .volume-toggle:hover, .volume-toggle.active { color: var(--accent); background: var(--accent-soft); }
 .volume-panel { position: absolute; z-index: 42; right: 0; bottom: calc(100% + 10px); width: 236px; padding: 13px 14px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 32px color-mix(in srgb, var(--text) 16%, transparent); }
+.slider-value { display: block; margin: 0 0 9px; color: var(--accent); font-size: 18px; font-weight: 700; line-height: 1; text-align: center; font-variant-numeric: tabular-nums; }
 .volume-range { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .volume-input { width: 100%; accent-color: var(--accent); }
 .volume-panel p { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
