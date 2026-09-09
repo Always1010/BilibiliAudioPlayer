@@ -115,6 +115,7 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .section-card.has-cover .section-header { grid-template-columns: 36px 74px minmax(0, 1fr) auto; }
 .section-toggle { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; }
 .section-toggle:hover { background: var(--surface-soft); }
+.favorite-section-icon { color: var(--accent); }
 .section-card.open .section-toggle svg { transform: rotate(90deg); }
 .section-toggle svg { transition: transform 150ms ease; }
 .section-cover-button { width: 74px; padding: 0; overflow: hidden; border: 0; border-radius: 8px; background: var(--surface-soft); }
