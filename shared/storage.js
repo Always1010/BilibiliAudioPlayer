@@ -31,6 +31,9 @@ export async function initializeStorage() {
   if (!Array.isArray(stored[STORAGE_KEYS.playlists])) {
     changes[STORAGE_KEYS.playlists] = [];
   }
+  if (!Array.isArray(stored[STORAGE_KEYS.favoriteSections])) {
+    changes[STORAGE_KEYS.favoriteSections] = [];
+  }
 
   if (Object.keys(changes).length) {
     await chrome.storage.local.set(changes);
@@ -46,7 +49,8 @@ export async function getAppState() {
     settings: { ...DEFAULT_SETTINGS, ...(stored[STORAGE_KEYS.settings] ?? {}) },
     updateState: stored[STORAGE_KEYS.updateState] ?? {},
     subscriptions: stored[STORAGE_KEYS.subscriptions] ?? {},
-    playlists: stored[STORAGE_KEYS.playlists] ?? []
+    playlists: stored[STORAGE_KEYS.playlists] ?? [],
+    favoriteSections: stored[STORAGE_KEYS.favoriteSections] ?? []
   };
 }
 

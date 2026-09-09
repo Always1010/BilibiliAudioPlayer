@@ -29,6 +29,11 @@ import {
 } from "../services/playlists.js";
 import { repairPlaylistDurations } from "../services/playlists.js";
 import { mergeImportedPlaylists } from "../services/playlist-transfer.js";
+import {
+  addFavoriteSection,
+  normalizeFavoriteSections,
+  removeFavoriteSection
+} from "../services/favorite-sections.js";
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 let creatingOffscreen = null;
@@ -292,6 +297,18 @@ async function handlePlaylistCommand(command, payload = {}) {
   });
 }
 
+async function handleFavoriteSectionCommand(command, payload = {}) {
+  if (command === "list") {
+    const stored = await chrome.storage.local.get(STORAGE_KEYS.favoriteSections);
+    return normalizeFavoriteSections(stored[STORAGE_KEYS.favoriteSections]);
+  }
+  return updateStorageValue(STORAGE_KEYS.favoriteSections, current => {
+    if (command === "add") return addFavoriteSection(current, payload.section);
+    if (command === "remove") return removeFavoriteSection(current, payload.key);
+    throw new Error(`未知收藏栏目命令：${command}`);
+  });
+}
+
 async function handleMessage(message) {
   switch (message.type) {
     case MESSAGE.getAppState:
@@ -349,6 +366,8 @@ async function handleMessage(message) {
       return { ok: true, data: await setSubscription(message) };
     case MESSAGE.playlistCommand:
       return { ok: true, data: await handlePlaylistCommand(message.command, message.payload) };
+    case MESSAGE.favoriteSectionCommand:
+      return { ok: true, data: await handleFavoriteSectionCommand(message.command, message.payload) };
     default:
       return { ok: false, error: `未知消息：${message.type}` };
   }
