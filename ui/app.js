@@ -1094,14 +1094,16 @@ root.addEventListener("focusin", event => {
   requestAnimationFrame(() => root.querySelector('[data-role="creator-search-input"]')?.focus());
 });
 
-root.addEventListener("keydown", event => {
-  const editable = event.target.matches("input, textarea, select, [contenteditable=\"true\"]");
+document.addEventListener("keydown", event => {
+  const target = event.target;
+  const editable = Boolean(target?.matches?.("input, textarea, select, [contenteditable=\"true\"]") || target?.isContentEditable);
   if (event.key === "Escape" && ui.searchOpen) {
     ui.searchOpen = false;
     render();
     return;
   }
-  if (event.key === "/" && !editable && !event.ctrlKey && !event.metaKey && !event.altKey) {
+  const isSlash = event.key === "/" || (event.code === "Slash" && !event.shiftKey);
+  if (isSlash && !editable && !event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault();
     ui.searchOpen = true;
     const focusSearch = () => root.querySelector('[data-role="creator-search-input"]')?.focus();
