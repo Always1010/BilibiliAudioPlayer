@@ -254,6 +254,17 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .source-badge { padding: 2px 6px; color: var(--accent); font-size: 10px; white-space: nowrap; border-radius: 999px; background: var(--accent-soft); }
 .source-badge.local { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
 .player-controls { display: flex; align-items: center; gap: 3px; }
+.speed-control { position: relative; }
+.speed-toggle { min-width: 40px; height: 34px; padding: 0 7px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; border: 0; border-radius: 9px; background: transparent; }
+.speed-toggle:hover, .speed-toggle.active { color: var(--accent); background: var(--accent-soft); }
+.speed-panel { position: absolute; z-index: 42; right: 0; bottom: calc(100% + 10px); width: 264px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 32px color-mix(in srgb, var(--text) 16%, transparent); }
+.speed-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 13px; }
+.speed-value { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+.speed-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.speed-preset { min-height: 29px; padding: 4px; color: var(--muted); font-size: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+.speed-preset:hover, .speed-preset.active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 44%, var(--line)); background: var(--accent-soft); }
+.speed-slider-label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 9px; margin-top: 12px; color: var(--muted); font-size: 11px; }
+.speed-input { width: 100%; accent-color: var(--accent); }
 .queue-toggle { display: inline-flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 8px; border: 0; border-radius: 9px; background: transparent; }
 .queue-toggle:hover, .queue-toggle.active { background: var(--accent-soft); }
 .queue-toggle span { font-size: 11px; }
@@ -292,6 +303,7 @@ html[data-layout="sidepanel"] .content { padding: 15px 11px 96px; }
 html[data-layout="sidepanel"] .player-bar { left: 0; grid-template-columns: minmax(0, 1fr) auto; }
 html[data-layout="sidepanel"] .play-queue-drawer { left: 0; }
 html[data-layout="sidepanel"] .progress-area { display: none; }
+html[data-layout="sidepanel"] .speed-panel { right: -42px; }
 html[data-layout="sidepanel"] .brand-name,
 html[data-layout="sidepanel"] .login-state { display: none; }
 html[data-layout="sidepanel"] .topbar { gap: 7px; padding-inline: 9px; }
@@ -322,6 +334,7 @@ html[data-layout="sidepanel"] .queue-state { max-width: 105px; }
   .player-bar { left: 0; grid-template-columns: minmax(0, 1fr) auto; }
   .play-queue-drawer { left: 0; }
   .progress-area { display: none; }
+  .speed-panel { right: -42px; }
   .settings-grid { grid-template-columns: 1fr; }
   .playlist-grid { grid-template-columns: 1fr; }
 }

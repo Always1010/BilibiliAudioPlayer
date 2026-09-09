@@ -465,3 +465,13 @@
 - 解决方案：将快捷键监听提升到 `document`，安全判断可编辑目标，兼容 `event.code === "Slash"` 的物理按键识别，并保留输入控件内不抢占快捷键的行为。
 - 验证方式：执行 JavaScript 语法检查、全部 Node 测试、Manifest 0.8.4 JSON 检查与 `git diff --check`；在扩展不同页面空白区域按 `/`，确认搜索框稳定获得焦点。
 - 相关文件：`ui/app.js`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-045：底部播放栏缺少倍速调节
+
+- 日期：2026-09-09
+- 状态：已解决
+- 修改背景：用户希望在底部播放栏直接切换音频倍速，既能快速使用常见速度，也能精确选择介于常用档位之间的速度。
+- 原因：离屏音频元素虽然支持 `playbackRate`，但播放器状态、命令协议和底部播放栏均未暴露该能力，因此切换速度既不可操作也无法在不同扩展界面间同步。
+- 解决方案：将倍速纳入持久化播放器状态，离屏音频页使用 `rate` 命令把值限制为 0.5×–4×、每 0.1× 一档，并在切换音源、界面重建后保持。底部播放栏新增显示当前值的按钮；弹层提供 0.5×、0.75×、1×、1.25×、1.5×、2×、2.5×、3×、4× 快捷选项和精细滑动条。拖动中只更新本地读数，松开时才提交播放命令，避免高频状态同步打断拖动。
+- 验证方式：新增倍速纯函数测试，覆盖范围限制、0.1× 规范化、预设及显示文案；渲染策略测试确认倍速改变会刷新控件，而高频时间变化仍只局部更新。执行全部 Node 测试、JavaScript 语法检查、Manifest 0.8.5 JSON 检查与 `git diff --check`。
+- 相关文件：`shared/constants.js`、`services/playback-rate.js`、`offscreen/offscreen.js`、`services/player-render-policy.js`、`ui/app.js`、`ui/app.css`、`tests/playback-rate.test.mjs`、`tests/player-render-policy.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`

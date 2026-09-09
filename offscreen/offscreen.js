@@ -17,6 +17,7 @@ import { encodeAudioBufferToMp3, normalizeMp3Bitrate } from "../services/mp3.js"
 import { addCacheHistory, summarizeCacheTask } from "../services/cache-queue-state.js";
 import { audioStreamCandidates, mediaErrorText, mediaSourceType } from "../services/audio-stream.js";
 import { cachedPlaybackSource, onlinePlaybackSource } from "../services/playback-source.js";
+import { normalizePlaybackRate } from "../services/playback-rate.js";
 import { insertQueueItems, removeQueueItem, reorderQueue } from "../services/play-queue.js";
 import {
   ARCHIVE_MANIFEST_FILENAME,
@@ -56,6 +57,7 @@ function publicPlayerState(patch = {}) {
     loading: Boolean(state.loading),
     source: state.source ?? null,
     volume: audio.volume,
+    playbackRate: audio.playbackRate,
     mode: state.mode,
     error: null,
     ...patch
@@ -642,6 +644,7 @@ async function handleCommand(command, payload = {}) {
     case "hydrate":
       state = { ...state, ...payload.player };
       audio.volume = state.volume;
+      audio.playbackRate = normalizePlaybackRate(state.playbackRate);
       return state;
     case "playQueue":
       state.queue = payload.queue ?? [];
@@ -715,6 +718,9 @@ async function handleCommand(command, payload = {}) {
     case "volume":
       audio.volume = Math.max(0, Math.min(1, Number(payload.volume)));
       break;
+    case "rate":
+      audio.playbackRate = normalizePlaybackRate(payload.rate, state.playbackRate);
+      break;
     case "mode":
       state.mode = payload.mode;
       break;
@@ -729,6 +735,7 @@ audio.addEventListener("play", () => report().catch(console.error));
 audio.addEventListener("pause", () => report().catch(console.error));
 audio.addEventListener("durationchange", () => report().catch(console.error));
 audio.addEventListener("volumechange", () => report().catch(console.error));
+audio.addEventListener("ratechange", () => report().catch(console.error));
 audio.addEventListener("timeupdate", () => {
   const second = Math.floor(audio.currentTime);
   if (second !== lastReportedSecond && second % 2 === 0) {

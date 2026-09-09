@@ -19,6 +19,7 @@ const initial = playerStructureKey(player, { queueOpen: true });
 assert.equal(playerStructureKey({ ...player, currentTime: 12, duration: 181 }, { queueOpen: true }), initial);
 assert.notEqual(playerStructureKey({ ...player, playing: false }, { queueOpen: true }), initial);
 assert.notEqual(playerStructureKey({ ...player, mode: "single" }, { queueOpen: true }), initial);
+assert.notEqual(playerStructureKey({ ...player, playbackRate: 1.5 }, { queueOpen: true }), initial);
 assert.notEqual(playerStructureKey({ ...player, source: { kind: "cache", format: "mp3", bitrate: 192 } }, { queueOpen: true }), initial);
 assert.notEqual(playerStructureKey({ ...player, queueIndex: -1 }, { queueOpen: true }), initial);
 assert.notEqual(playerStructureKey(player, { queueOpen: false }), initial);

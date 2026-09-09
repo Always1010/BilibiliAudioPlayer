@@ -8,6 +8,7 @@ import { parsePlaylistExport, serializePlaylistExport } from "../services/playli
 import { cacheCoverageForTracks, cacheRecordBytes } from "../services/cache-records.js";
 import { loadAllSectionPages } from "../services/section-pagination.js";
 import { playbackModeLabel } from "../services/playback-mode.js";
+import { PLAYBACK_RATE_MAX, PLAYBACK_RATE_MIN, PLAYBACK_RATE_PRESETS, PLAYBACK_RATE_STEP, normalizePlaybackRate, playbackRateLabel } from "../services/playback-rate.js";
 import { playerStructureKey } from "../services/player-render-policy.js";
 import { isFavoriteSection } from "../services/favorite-sections.js";
 
@@ -27,6 +28,8 @@ const ui = {
   detailPage: 1,
   trackSearchKeyword: "",
   queueOpen: false,
+  rateOpen: false,
+  rateDraft: null,
   activePlaylistId: null,
   playlistPicker: null,
   playlistImportPreview: null,
@@ -74,6 +77,7 @@ function applyIconTooltips(scope) {
     "button.search-submit[aria-label]",
     "button.play-main[aria-label]",
     "button.queue-toggle[aria-label]",
+    "button.speed-toggle[aria-label]",
     "button.section-toggle[aria-label]",
     "button.section-cover-button[aria-label]"
   ].join(",");
@@ -506,11 +510,13 @@ function playerMarkup() {
   const player = ui.app?.player ?? {};
   const track = player.currentTrack;
   const modeLabel = playbackModeLabel(player.mode);
+  const playbackRate = normalizePlaybackRate(player.playbackRate);
+  const displayedRate = normalizePlaybackRate(ui.rateDraft ?? playbackRate);
   const progressMax = Math.max(1, Number(player.duration) || Number(track?.duration) || 1);
   const sourceLabel = playbackSourceLabel(player.source, player.loading);
   return `<footer class="player-bar">
     <div class="now-playing">${image(track?.cover, track?.title ?? "尚未播放", "now-cover")}<div class="now-copy"><div class="now-title">${escapeHtml(track?.title ?? "选择一个作品开始播放")}</div><div class="now-meta"><span class="muted">${escapeHtml(track?.creator?.name ?? "哔哩音频")}</span>${sourceLabel ? `<span class="source-badge ${player.source?.kind === "cache" ? "local" : ""}">${escapeHtml(sourceLabel)}</span>` : ""}${player.error ? `<span class="player-error">${escapeHtml(player.error)}</span>` : ""}</div></div></div>
-    <div class="player-controls"><button class="icon-button" type="button" data-action="change-mode" aria-label="${modeLabel}">${symbol(player.mode === "shuffle" ? "⤨" : player.mode === "single" ? "①" : "↻")}</button><button class="icon-button" type="button" data-action="previous" aria-label="上一首">${symbol("◀|")}</button><button class="play-main" type="button" data-action="${player.playing ? "pause" : "resume"}" aria-label="${player.playing ? "暂停" : "播放"}">${symbol(player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="next" aria-label="下一首">${symbol("|▶")}</button><button class="queue-toggle ${ui.queueOpen ? "active" : ""}" type="button" data-action="toggle-play-queue" aria-expanded="${ui.queueOpen}" aria-label="查看播放队列">${symbol("☷")}<span>${player.queue?.length ?? 0}</span></button></div>
+    <div class="player-controls"><button class="icon-button" type="button" data-action="change-mode" aria-label="${modeLabel}">${symbol(player.mode === "shuffle" ? "⤨" : player.mode === "single" ? "①" : "↻")}</button><button class="icon-button" type="button" data-action="previous" aria-label="上一首">${symbol("◀|")}</button><button class="play-main" type="button" data-action="${player.playing ? "pause" : "resume"}" aria-label="${player.playing ? "暂停" : "播放"}">${symbol(player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="next" aria-label="下一首">${symbol("|▶")}</button><div class="speed-control"><button class="speed-toggle ${ui.rateOpen ? "active" : ""}" type="button" data-action="toggle-rate" aria-expanded="${ui.rateOpen}" aria-label="播放倍速，当前 ${playbackRateLabel(playbackRate)}">${playbackRateLabel(playbackRate)}</button>${ui.rateOpen ? `<section class="speed-panel" aria-label="播放倍速"><div class="speed-panel-header"><strong>播放倍速</strong><output class="speed-value">${playbackRateLabel(displayedRate)}</output></div><div class="speed-presets">${PLAYBACK_RATE_PRESETS.map(rate => `<button class="speed-preset ${rate === playbackRate ? "active" : ""}" type="button" data-action="set-rate" data-rate="${rate}" aria-pressed="${rate === playbackRate}">${playbackRateLabel(rate)}</button>`).join("")}</div><label class="speed-slider-label"><span>精细调节</span><input class="speed-input" type="range" min="${PLAYBACK_RATE_MIN}" max="${PLAYBACK_RATE_MAX}" step="${PLAYBACK_RATE_STEP}" value="${displayedRate}" data-action="set-rate-slider" aria-label="精细调节播放倍速，当前 ${playbackRateLabel(displayedRate)}"></label></section>` : ""}</div><button class="queue-toggle ${ui.queueOpen ? "active" : ""}" type="button" data-action="toggle-play-queue" aria-expanded="${ui.queueOpen}" aria-label="查看播放队列">${symbol("☷")}<span>${player.queue?.length ?? 0}</span></button></div>
     <div class="progress-area"><input class="progress-input" type="range" min="0" max="${progressMax}" value="${Math.min(Number(player.currentTime) || 0, progressMax)}" step="1" data-action="seek" aria-label="播放进度"><span class="time-label">${formatDuration(player.currentTime)} / ${formatDuration(progressMax)}</span></div>
   </footer>`;
 }
@@ -1161,6 +1167,22 @@ root.addEventListener("input", event => {
   if (event.target.matches('[data-action="seek"]')) {
     playerCommand("seek", { time: Number(event.target.value) });
   }
+  if (event.target.matches('[data-action="set-rate-slider"]')) {
+    const rate = normalizePlaybackRate(event.target.value);
+    ui.rateDraft = rate;
+    const panel = event.target.closest(".speed-panel");
+    const value = panel?.querySelector(".speed-value");
+    if (value) value.textContent = playbackRateLabel(rate);
+    event.target.setAttribute("aria-label", `精细调节播放倍速，当前 ${playbackRateLabel(rate)}`);
+  }
+});
+
+root.addEventListener("change", event => {
+  if (event.target.matches('[data-action="set-rate-slider"]')) {
+    const rate = normalizePlaybackRate(event.target.value);
+    ui.rateDraft = null;
+    playerCommand("rate", { rate });
+  }
 });
 
 root.addEventListener("dragstart", event => {
@@ -1290,9 +1312,20 @@ root.addEventListener("click", async event => {
     else if (action === "dismiss-cache-toast") { ui.cacheToast = null; renderCacheToast(); }
     else if (action === "open-full") await send(MESSAGE.openPlayer);
     else if (action === "toggle-play-queue") {
+      ui.rateOpen = false;
+      ui.rateDraft = null;
       ui.queueOpen = !ui.queueOpen;
       renderPlayer();
       if (ui.queueOpen) requestAnimationFrame(() => root.querySelector(".play-queue-row.current")?.scrollIntoView({ block: "nearest" }));
+    }
+    else if (action === "toggle-rate") {
+      ui.rateOpen = !ui.rateOpen;
+      ui.rateDraft = null;
+      renderPlayer();
+    }
+    else if (action === "set-rate") {
+      ui.rateDraft = null;
+      await playerCommand("rate", { rate: normalizePlaybackRate(button.dataset.rate) });
     }
     else if (action === "play-queue-index") await playerCommand("playIndex", { index: Number(button.dataset.index) });
     else if (action === "remove-queue-item") await playerCommand("removeQueueItem", { index: Number(button.dataset.index) });

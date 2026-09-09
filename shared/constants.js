@@ -20,6 +20,7 @@ export const DEFAULT_PLAYER = Object.freeze({
   loading: false,
   source: null,
   volume: 0.8,
+  playbackRate: 1,
   mode: "list"
 });
 

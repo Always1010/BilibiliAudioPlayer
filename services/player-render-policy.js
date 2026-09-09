@@ -24,6 +24,7 @@ export function playerStructureKey(player = {}, { queueOpen = false } = {}) {
     playing: Boolean(player.playing),
     loading: Boolean(player.loading),
     source: sourceSnapshot(player.source),
+    playbackRate: Number(player.playbackRate) || 1,
     mode: player.mode ?? "list",
     error: player.error ?? ""
   });
