@@ -403,6 +403,8 @@ function renderPlayer() {
 function queueContextForSection(section) {
   return {
     kind: section.type,
+    id: String(section.id),
+    creatorId: String(activeCreator()?.id || ""),
     title: `${activeCreator()?.name || "UP 主"} · ${section.title}`
   };
 }

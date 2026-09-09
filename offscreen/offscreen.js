@@ -1,15 +1,18 @@
 import { DEFAULT_PLAYER, MESSAGE } from "../shared/constants.js";
 import {
   clearCacheDirectoryHandle,
+  deleteCacheLocation,
+  findCachedFile,
+  findCachedFiles,
   getCacheDirectoryInfo,
   getCacheRecord,
-  getCachedFile,
   getOrCreateDirectory,
   listCacheRecords,
   putCacheRecord,
   requireWritableDirectory,
   safeFilePart
 } from "../services/file-store.js";
+import { archiveScope, scopeKeyFromContext } from "../services/cache-records.js";
 import { encodeAudioBufferToMp3, normalizeMp3Bitrate } from "../services/mp3.js";
 import { addCacheHistory, summarizeCacheTask } from "../services/cache-queue-state.js";
 import { audioStreamCandidates, mediaErrorText, mediaSourceType } from "../services/audio-stream.js";
@@ -245,21 +248,24 @@ async function loadAndPlay(index, resumeAt = 0) {
   disposeCurrentSource();
 
   const cachedRecord = await getCacheRecord(track.id);
-  const cachedFile = cachedRecord ? await getCachedFile(cachedRecord) : null;
-  let source;
-  if (cachedFile?.size) {
+  const cachedFiles = cachedRecord
+    ? await findCachedFiles(cachedRecord, { preferredScopeKey: scopeKeyFromContext(state.queueContext) })
+    : [];
+  let source = null;
+  for (const cached of cachedFiles) {
     try {
-      currentObjectUrl = URL.createObjectURL(cachedFile);
+      currentObjectUrl = URL.createObjectURL(cached.file);
       audio.src = currentObjectUrl;
       audio.load();
       await waitForAudioReady("本地缓存加载", resumeAt);
-      source = cachedPlaybackSource(cachedRecord);
+      source = cachedPlaybackSource(cached.location);
+      break;
     } catch {
       disposeCurrentSource();
-      await loadRemoteAudio(track, resumeAt);
-      source = onlinePlaybackSource();
+      await deleteCacheLocation(cachedRecord.trackId, cached.location.id);
     }
-  } else {
+  }
+  if (!source) {
     await loadRemoteAudio(track, resumeAt);
     source = onlinePlaybackSource();
   }
@@ -351,10 +357,15 @@ async function transcodeToMp3(sourceBlob, task) {
 
 async function downloadTrack(task, getRoot) {
   const existing = await getCacheRecord(task.track.id);
-  const existingFormat = existing?.format ?? "original";
-  const sameEncoding = existingFormat === task.format
-    && (task.format !== "mp3" || Number(existing.bitrate) === task.bitrate);
-  if (existing && sameEncoding && await getCachedFile(existing)) {
+  const creator = task.track.creator ?? {};
+  const scope = archiveScope(task.section, creator);
+  const target = existing ? await findCachedFile(existing, {
+    preferredScopeKey: scope.key,
+    onlyPreferred: true,
+    format: task.format,
+    bitrate: task.bitrate
+  }) : null;
+  if (target) {
     await reportCache({ track: task.track, status: "skipped", message: "文件已经缓存" });
     return existing;
   }
@@ -362,7 +373,6 @@ async function downloadTrack(task, getRoot) {
   const root = await getRoot();
   const stream = await sendToBackground({ type: MESSAGE.resolveAudio, track: task.track });
   const extension = task.format === "mp3" ? "mp3" : extensionForStream(stream);
-  const creator = task.track.creator ?? {};
   const creatorFolder = `${safeFilePart(creator.name || "未知UP主")}_${safeFilePart(creator.id || "unknown")}`;
   const typeFolder = task.section?.type === "season" ? "合集" : task.section?.type === "series" ? "系列" : "全部作品";
   const parts = task.section?.type === "all"
@@ -390,23 +400,28 @@ async function downloadTrack(task, getRoot) {
     throw error;
   }
 
-  const record = {
-    trackId: String(task.track.id),
-    bvid: task.track.bvid,
-    title: task.track.title,
-    creator,
-    section: task.section,
+  const location = {
+    id: `${scope.key}:${task.format}:${task.format === "mp3" ? task.bitrate : "source"}`,
+    scope,
     path: [...parts, filename],
     format: task.format,
     bitrate: task.format === "mp3" ? task.bitrate : null,
     mimeType: task.format === "mp3" ? "audio/mpeg" : stream.mimeType,
     codec: task.format === "mp3" ? "mp3" : stream.codec,
     size: output.size,
-    cachedAt: Date.now()
+    cachedAt: Date.now(),
+    verifiedAt: Date.now()
   };
-  await putCacheRecord(record);
-  await reportCache({ track: task.track, status: "completed", record });
-  return record;
+  const record = {
+    trackId: String(task.track.id),
+    bvid: task.track.bvid,
+    title: task.track.title,
+    creator,
+    locations: [location]
+  };
+  const saved = await putCacheRecord(record);
+  await reportCache({ track: task.track, status: "completed", record: { ...record, ...location } });
+  return saved;
 }
 
 async function processCacheQueue() {
@@ -446,13 +461,16 @@ async function handleCacheCommand(command, payload = {}) {
   if (command === "cacheTracks") {
     const format = payload.format === "mp3" ? "mp3" : "original";
     const bitrate = normalizeMp3Bitrate(payload.bitrate);
-    const known = new Set(cacheQueue.map(item =>
-      `${item.track.id}:${item.format}:${item.format === "mp3" ? item.bitrate : "source"}`
-    ));
+    const taskKey = task => {
+      const scope = archiveScope(task.section, task.track.creator ?? {});
+      return `${task.track.id}:${scope.key}:${task.format}:${task.format === "mp3" ? task.bitrate : "source"}`;
+    };
+    const known = new Set([...cacheQueue, currentCacheTask].filter(Boolean).map(taskKey));
     (payload.tracks ?? []).forEach((track, position) => {
-      const key = `${track.id}:${format}:${format === "mp3" ? bitrate : "source"}`;
+      const task = { track, section: payload.section, position, format, bitrate };
+      const key = taskKey(task);
       if (!known.has(key)) {
-        cacheQueue.push({ track, section: payload.section, position, format, bitrate });
+        cacheQueue.push(task);
         known.add(key);
       }
     });

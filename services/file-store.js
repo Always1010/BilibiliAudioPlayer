@@ -1,3 +1,11 @@
+import {
+  locationMatches,
+  mergeCacheLocation,
+  normalizeCacheRecord,
+  orderedCacheLocations,
+  removeCacheLocation
+} from "./cache-records.js";
+
 const DATABASE_NAME = "bili-audio-files";
 const DATABASE_VERSION = 1;
 const HANDLE_STORE = "handles";
@@ -99,20 +107,35 @@ export async function requireWritableDirectory() {
   return handle;
 }
 
-export function putCacheRecord(record) {
-  return useStore(RECORD_STORE, "readwrite", store => store.put(record));
+export async function putCacheRecord(record) {
+  const current = await useStore(RECORD_STORE, "readonly", store => store.get(String(record.trackId)));
+  const next = mergeCacheLocation(current, record);
+  await useStore(RECORD_STORE, "readwrite", store => store.put(next));
+  return next;
 }
 
-export function getCacheRecord(trackId) {
-  return useStore(RECORD_STORE, "readonly", store => store.get(String(trackId)));
+export async function getCacheRecord(trackId) {
+  return normalizeCacheRecord(await useStore(RECORD_STORE, "readonly", store => store.get(String(trackId))));
 }
 
-export function listCacheRecords() {
-  return useStore(RECORD_STORE, "readonly", store => store.getAll());
+export async function listCacheRecords() {
+  const values = await useStore(RECORD_STORE, "readonly", store => store.getAll());
+  return values.map(normalizeCacheRecord).filter(Boolean);
 }
 
 export function deleteCacheRecord(trackId) {
   return useStore(RECORD_STORE, "readwrite", store => store.delete(String(trackId)));
+}
+
+export async function deleteCacheLocation(trackId, locationId) {
+  const current = await getCacheRecord(trackId);
+  const next = removeCacheLocation(current, locationId);
+  if (!next) {
+    await deleteCacheRecord(trackId);
+    return null;
+  }
+  await useStore(RECORD_STORE, "readwrite", store => store.put(next));
+  return next;
 }
 
 export function safeFilePart(value, fallback = "未命名") {
@@ -131,17 +154,45 @@ export async function getOrCreateDirectory(root, parts) {
   return current;
 }
 
-export async function getCachedFile(record) {
-  const root = await getCacheDirectoryHandle();
-  if (!root || await root.queryPermission({ mode: "read" }) !== "granted") return null;
-  try {
-    let directory = root;
-    for (const part of record.path.slice(0, -1)) {
-      directory = await directory.getDirectoryHandle(part);
-    }
-    const fileHandle = await directory.getFileHandle(record.path.at(-1));
-    return await fileHandle.getFile();
-  } catch {
-    return null;
+async function fileAtPath(root, path) {
+  let directory = root;
+  for (const part of path.slice(0, -1)) {
+    directory = await directory.getDirectoryHandle(part);
   }
+  const fileHandle = await directory.getFileHandle(path.at(-1));
+  return fileHandle.getFile();
+}
+
+export async function findCachedFiles(record, options = {}) {
+  const root = await getCacheDirectoryHandle();
+  if (!root || await root.queryPermission({ mode: "read" }) !== "granted") return [];
+  const normalized = normalizeCacheRecord(record);
+  if (!normalized) return [];
+  const preferredScopeKey = String(options.preferredScopeKey ?? "");
+  const locations = orderedCacheLocations(normalized, preferredScopeKey).filter(location =>
+    locationMatches(location, {
+      scopeKey: options.onlyPreferred ? preferredScopeKey : "",
+      format: options.format,
+      bitrate: options.bitrate
+    })
+  );
+  const found = [];
+  for (const location of locations) {
+    try {
+      const file = await fileAtPath(root, location.path);
+      if (file.size) found.push({ file, location });
+      else await deleteCacheLocation(normalized.trackId, location.id);
+    } catch {
+      await deleteCacheLocation(normalized.trackId, location.id);
+    }
+  }
+  return found;
+}
+
+export async function findCachedFile(record, options = {}) {
+  return (await findCachedFiles(record, options))[0] ?? null;
+}
+
+export async function getCachedFile(record, options = {}) {
+  return (await findCachedFile(record, options))?.file ?? null;
 }
