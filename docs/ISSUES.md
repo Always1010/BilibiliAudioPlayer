@@ -86,6 +86,17 @@
 - 验证方式：新增队列状态测试，验证任务快照只携带 UI 所需字段、进行中状态不进入历史、终态结果正确记录且历史限制为 30 条；执行全部 JavaScript 测试、语法检查和 `git diff --check`。
 - 相关文件：`services/cache-queue-state.js`、`offscreen/offscreen.js`、`ui/app.js`、`ui/app.css`、`tests/cache-queue.test.mjs`、`README.md`、`docs/ISSUES.md`
 
+## ISSUE-009：网页可播放但扩展提示音频流加载失败
+
+- 日期：2026-09-09
+- 状态：已解决
+- 现象：作品在哔哩哔哩网页中能够正常播放，但扩展只提示“音频流加载失败，可能已失效或受到访问限制”。
+- 排查结果：使用公开播放接口取得一个 AAC DASH 音频地址后，通过有无视频页 Referer 的 1 KB Range 请求均返回 HTTP 206，说明不能笼统归因于作品权限、临时 URL 过期或 CDN 强制校验 Referer。扩展原先还会优先打开本地缓存，但没有验证空文件或处理不可播放缓存；在线路径则直接把 DASH 音频地址赋给普通 `<audio src>`，没有采用网页播放器使用的分段媒体管线，也没有尝试备用 CDN。任一路径失败都会显示同一句模糊提示。
+- 解决方案：播放顺序改为“有效本地缓存 → 扩展 fetch 接管的 Media Source 流式播放 → 完整 Blob 最后回退”。Media Source 按顺序把 DASH 字节追加到 `SourceBuffer`，使用作品视频页作为请求来源，依次尝试主地址和备用 CDN，并把预缓冲控制在约两分钟；本地缓存为空或不能解码时自动转入在线路径。切歌会中止旧请求并释放 Object URL。
+- 错误反馈：根据 `MediaError.code` 区分加载中止、媒体网络失败、音频解码失败和格式不支持；如果流式与 Blob 回退均失败，错误会同时列出两个阶段的具体原因。
+- 验证方式：新增音频流测试，验证主地址与备用地址去重、AAC/Opus 的 Media Source MIME 组合、非法 codec 字符清理和媒体错误码翻译；执行全部 JavaScript 测试、语法检查、Manifest JSON 检查和 `git diff --check`。由于真实目录和媒体播放需要浏览器用户手势，最终播放仍需在重新加载扩展后进行一次实际作品验证。
+- 相关文件：`services/audio-stream.js`、`offscreen/offscreen.js`、`tests/audio-stream.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
 ## ISSUE-009：扩展图标未显示
 
 - 日期：2026-09-09

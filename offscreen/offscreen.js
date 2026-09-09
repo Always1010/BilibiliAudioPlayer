@@ -12,11 +12,14 @@ import {
 } from "../services/file-store.js";
 import { encodeAudioBufferToMp3, normalizeMp3Bitrate } from "../services/mp3.js";
 import { addCacheHistory, summarizeCacheTask } from "../services/cache-queue-state.js";
+import { audioStreamCandidates, mediaErrorText, mediaSourceType } from "../services/audio-stream.js";
 
 const audio = document.getElementById("audio");
 let state = { ...DEFAULT_PLAYER };
 let lastReportedSecond = -1;
 let currentObjectUrl = null;
+let currentStreamAbort = null;
+let currentStreamPump = null;
 const cacheQueue = [];
 let cacheRunning = false;
 let currentCacheTask = null;
@@ -62,38 +65,33 @@ function updateMediaSession(track) {
   });
 }
 
-async function loadAndPlay(index, resumeAt = 0) {
-  if (!state.queue.length) throw new Error("播放队列为空");
-  const normalizedIndex = Math.max(0, Math.min(index, state.queue.length - 1));
-  const track = state.queue[normalizedIndex];
-  state.queueIndex = normalizedIndex;
-  state.currentTrack = track;
-  await report({ loading: true, currentTrack: track, queueIndex: normalizedIndex }, true);
-
+function disposeCurrentSource() {
+  currentStreamAbort?.abort();
+  currentStreamAbort = null;
+  currentStreamPump = null;
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
   if (currentObjectUrl) {
     URL.revokeObjectURL(currentObjectUrl);
     currentObjectUrl = null;
   }
-  const cachedRecord = await getCacheRecord(track.id);
-  const cachedFile = cachedRecord ? await getCachedFile(cachedRecord) : null;
-  if (cachedFile) {
-    currentObjectUrl = URL.createObjectURL(cachedFile);
-    audio.src = currentObjectUrl;
-  } else {
-    const stream = await sendToBackground({ type: MESSAGE.resolveAudio, track });
-    audio.src = stream.url;
-  }
-  audio.volume = state.volume ?? 0.8;
-  audio.load();
-  await new Promise((resolve, reject) => {
+}
+
+function waitForAudioReady(label, resumeAt = 0) {
+  return new Promise((resolve, reject) => {
     const ready = () => {
       cleanup();
-      if (resumeAt > 0 && Number.isFinite(audio.duration)) audio.currentTime = Math.min(resumeAt, audio.duration);
+      if (resumeAt > 0) {
+        try { audio.currentTime = Math.min(resumeAt, Number.isFinite(audio.duration) ? audio.duration : resumeAt); }
+        catch {}
+      }
       resolve();
     };
     const failed = () => {
+      const details = mediaErrorText(audio.error);
       cleanup();
-      reject(new Error("音频流加载失败，可能已失效或受到访问限制"));
+      reject(new Error(`${label}失败：${details}`));
     };
     const cleanup = () => {
       audio.removeEventListener("canplay", ready);
@@ -102,6 +100,160 @@ async function loadAndPlay(index, resumeAt = 0) {
     audio.addEventListener("canplay", ready, { once: true });
     audio.addEventListener("error", failed, { once: true });
   });
+}
+
+async function fetchStreamResponse(stream, signal) {
+  let lastStatus = null;
+  for (const url of audioStreamCandidates(stream)) {
+    try {
+      const response = await fetch(url, {
+        credentials: "include",
+        referrer: stream.bvid ? `https://www.bilibili.com/video/${stream.bvid}/` : "https://www.bilibili.com/",
+        signal
+      });
+      if (response.ok && response.body) return response;
+      lastStatus = response.status;
+    } catch (error) {
+      if (signal.aborted) throw error;
+    }
+  }
+  throw new Error(lastStatus ? `CDN 返回 HTTP ${lastStatus}` : "所有 CDN 音频地址均不可访问");
+}
+
+function appendToSourceBuffer(sourceBuffer, value, signal) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      sourceBuffer.removeEventListener("updateend", updated);
+      sourceBuffer.removeEventListener("error", failed);
+      signal.removeEventListener("abort", aborted);
+    };
+    const updated = () => { cleanup(); resolve(); };
+    const failed = () => { cleanup(); reject(new Error("浏览器无法解析 DASH 音频片段")); };
+    const aborted = () => { cleanup(); reject(new DOMException("音频加载已中止", "AbortError")); };
+    sourceBuffer.addEventListener("updateend", updated, { once: true });
+    sourceBuffer.addEventListener("error", failed, { once: true });
+    signal.addEventListener("abort", aborted, { once: true });
+    try {
+      sourceBuffer.appendBuffer(value);
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
+}
+
+async function waitForBufferSpace(sourceBuffer, signal) {
+  while (sourceBuffer.buffered.length
+    && sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1) - audio.currentTime > 120) {
+    await new Promise((resolve, reject) => {
+      let timer = null;
+      const done = () => { cleanup(); resolve(); };
+      const aborted = () => {
+        cleanup();
+        reject(new DOMException("音频加载已中止", "AbortError"));
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", aborted);
+      };
+      timer = setTimeout(done, 1000);
+      signal.addEventListener("abort", aborted, { once: true });
+    });
+  }
+}
+
+function startMediaSourceStream(stream) {
+  const type = mediaSourceType(stream);
+  if (!type || !("MediaSource" in globalThis) || !MediaSource.isTypeSupported(type)) {
+    throw new Error(`浏览器不支持流式解析 ${type || stream.mimeType || "该音频格式"}`);
+  }
+
+  const controller = new AbortController();
+  currentStreamAbort = controller;
+  const mediaSource = new MediaSource();
+  currentObjectUrl = URL.createObjectURL(mediaSource);
+  const opened = new Promise((resolve, reject) => {
+    mediaSource.addEventListener("sourceopen", resolve, { once: true });
+    mediaSource.addEventListener("error", () => reject(new Error("流式媒体容器初始化失败")), { once: true });
+  });
+  audio.src = currentObjectUrl;
+  audio.load();
+
+  const pump = opened.then(async () => {
+    const sourceBuffer = mediaSource.addSourceBuffer(type);
+    const response = await fetchStreamResponse(stream, controller.signal);
+    const reader = response.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      await appendToSourceBuffer(sourceBuffer, value, controller.signal);
+      await waitForBufferSpace(sourceBuffer, controller.signal);
+    }
+    if (mediaSource.readyState === "open") mediaSource.endOfStream();
+  });
+  currentStreamPump = pump;
+  return { pump, controller };
+}
+
+async function loadRemoteAudio(track, resumeAt) {
+  const stream = await sendToBackground({ type: MESSAGE.resolveAudio, track });
+  let streamError = null;
+  try {
+    const session = startMediaSourceStream(stream);
+    const ready = waitForAudioReady("DASH 流式加载", resumeAt);
+    await Promise.race([ready, session.pump.then(() => ready)]);
+    session.pump.catch(error => {
+      if (!session.controller.signal.aborted && currentStreamPump === session.pump) {
+        report({ error: `音频流中断：${error.message}` }).catch(console.error);
+      }
+    });
+    return;
+  } catch (error) {
+    streamError = error;
+    disposeCurrentSource();
+  }
+
+  const controller = new AbortController();
+  currentStreamAbort = controller;
+  try {
+    const response = await fetchStreamResponse(stream, controller.signal);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error("CDN 返回了空音频文件");
+    currentObjectUrl = URL.createObjectURL(new Blob([blob], { type: stream.mimeType || blob.type }));
+    audio.src = currentObjectUrl;
+    audio.load();
+    await waitForAudioReady("完整音频回退加载", resumeAt);
+  } catch (error) {
+    throw new Error(`在线播放失败：${streamError?.message || "流式加载不可用"}；回退加载失败：${error.message}`);
+  }
+}
+
+async function loadAndPlay(index, resumeAt = 0) {
+  if (!state.queue.length) throw new Error("播放队列为空");
+  const normalizedIndex = Math.max(0, Math.min(index, state.queue.length - 1));
+  const track = state.queue[normalizedIndex];
+  state.queueIndex = normalizedIndex;
+  state.currentTrack = track;
+  await report({ loading: true, currentTrack: track, queueIndex: normalizedIndex }, true);
+  disposeCurrentSource();
+
+  const cachedRecord = await getCacheRecord(track.id);
+  const cachedFile = cachedRecord ? await getCachedFile(cachedRecord) : null;
+  if (cachedFile?.size) {
+    try {
+      currentObjectUrl = URL.createObjectURL(cachedFile);
+      audio.src = currentObjectUrl;
+      audio.load();
+      await waitForAudioReady("本地缓存加载", resumeAt);
+    } catch {
+      disposeCurrentSource();
+      await loadRemoteAudio(track, resumeAt);
+    }
+  } else {
+    await loadRemoteAudio(track, resumeAt);
+  }
+
+  audio.volume = state.volume ?? 0.8;
   updateMediaSession(track);
   await audio.play();
   await report({ loading: false });
@@ -373,7 +525,9 @@ audio.addEventListener("ended", () => {
   if (state.mode === "single") loadAndPlay(state.queueIndex).catch(error => report({ error: error.message }));
   else move(1).catch(error => report({ error: error.message }));
 });
-audio.addEventListener("error", () => report({ error: "音频播放失败" }).catch(console.error));
+audio.addEventListener("error", () => {
+  if (!state.loading) report({ error: `音频播放失败：${mediaErrorText(audio.error)}` }).catch(console.error);
+});
 
 if ("mediaSession" in navigator) {
   navigator.mediaSession.setActionHandler("play", () => handleCommand("resume"));
