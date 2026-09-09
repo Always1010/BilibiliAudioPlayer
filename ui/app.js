@@ -156,9 +156,11 @@ function sectionCard(section) {
   const items = section.items ?? [];
   const subscriptionKey = `${activeCreator()?.id}:${section.key}`;
   const following = Boolean(ui.app?.subscriptions?.[subscriptionKey]?.enabled);
-  return `<article class="section-card ${open ? "open" : ""}">
+  const hasCover = Boolean(section.cover);
+  return `<article class="section-card ${open ? "open" : ""} ${hasCover ? "has-cover" : ""}">
     <div class="section-header">
       <button class="section-toggle" type="button" data-action="toggle-section" data-key="${escapeHtml(section.key)}" aria-expanded="${open}" aria-label="${open ? "收起" : "展开"}${escapeHtml(title)}">${symbol("›")}</button>
+      ${hasCover ? `<button class="section-cover-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}" aria-label="进入 ${escapeHtml(title)} 详情">${image(section.cover, `${title}封面`, "section-cover")}</button>` : ""}
       <button class="section-title-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}"><h2 class="section-title">${escapeHtml(title)}</h2><span class="section-meta">${section.total} 个作品${section.updatedAt ? ` · 更新于 ${formatDate(section.updatedAt)}` : ""}${following ? " · 自动追更" : ""}</span></button>
       <div class="section-actions"><button class="icon-button" type="button" data-action="play-section" data-key="${escapeHtml(section.key)}" aria-label="播放全部">${symbol("▶")}</button><button class="icon-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}" aria-label="缓存全部">${symbol("⇩")}</button><button class="ghost-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}">进入详情</button></div>
     </div>
