@@ -65,3 +65,13 @@
 - 兼容性说明：转换不上传音频，但完整解码长音频会短时占用较多内存和 CPU；播放本身仍由离屏音频元素处理。
 - 验证方式：新增 MP3 编码自动化测试，使用真实 LAME 编码器生成一秒立体声音频，验证码率规范化、PCM 转换、输出长度和 MPEG 帧同步字；执行全部 JavaScript 测试、语法检查与 `git diff --check`。为保持未修改的上游文件可逐字节替换，`vendor/lamejs/` 通过 `.gitattributes` 排除项目空白规则，应用代码仍完整检查。
 - 相关文件：`.gitattributes`、`services/mp3.js`、`services/mp3-core.js`、`offscreen/mp3-worker.js`、`offscreen/offscreen.js`、`background/service-worker.js`、`ui/app.js`、`vendor/lamejs/`、`tests/mp3.test.mjs`、`README.md`、`docs/THIRD_PARTY_NOTICES.md`、`docs/ISSUES.md`
+
+## ISSUE-007：合集缓存每个作品都重新检查目录授权
+
+- 日期：2026-09-09
+- 状态：已解决
+- 现象：选择缓存整个合集后只能成功处理一个作品，后续作品提示缓存目录需要重新授权，用户不得不反复选择同一个文件夹。
+- 原因：每个作品开始下载时都会重新从 IndexedDB 读取并反序列化目录句柄，再单独调用 `queryPermission()`；合集缓存没有在整批任务期间复用第一次取得的已授权句柄。离屏页面和设置页面又是两个独立 JavaScript 上下文，因此设置页面中的内存句柄不会自动传递给离屏缓存任务。
+- 解决方案：为每个扩展上下文增加目录句柄缓存，合并并发读取；缓存队列启动时只创建一次目录获取任务，整批合集的所有作品复用同一个句柄和授权结果。用户主动重新选择目录后，通过缓存命令让离屏上下文清除旧句柄，下次任务读取新目录。
+- 验证方式：新增目录句柄缓存测试，验证并发读取只加载一次、后续作品复用同一句柄、主动刷新后重新读取、用户新选目录立即替换缓存；执行全部 JavaScript 测试、语法检查和 `git diff --check`。
+- 相关文件：`services/file-store.js`、`offscreen/offscreen.js`、`ui/app.js`、`tests/file-store.test.mjs`、`docs/ISSUES.md`

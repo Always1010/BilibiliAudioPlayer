@@ -565,6 +565,7 @@ root.addEventListener("click", async event => {
     }
     else if (action === "choose-folder") {
       const directory = await chooseCacheDirectory();
+      await send(MESSAGE.cacheCommand, { command: "refreshDirectory" });
       ui.notice = `缓存目录已设置为“${directory.name}”。`;
       await refreshCacheInfo();
       render();

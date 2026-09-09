@@ -4,6 +4,35 @@ const HANDLE_STORE = "handles";
 const RECORD_STORE = "records";
 const DIRECTORY_KEY = "cache-directory";
 
+export function createDirectoryHandleCache(loader) {
+  let cached = null;
+  let loading = null;
+  return {
+    async get() {
+      if (cached) return cached;
+      if (!loading) {
+        loading = Promise.resolve(loader())
+          .then(handle => {
+            cached = handle ?? null;
+            return cached;
+          })
+          .finally(() => {
+            loading = null;
+          });
+      }
+      return loading;
+    },
+    set(handle) {
+      cached = handle ?? null;
+      loading = null;
+    },
+    clear() {
+      cached = null;
+      loading = null;
+    }
+  };
+}
+
 function openDatabase() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
@@ -33,17 +62,26 @@ async function useStore(name, mode, operation) {
   }
 }
 
+const directoryHandleCache = createDirectoryHandleCache(() =>
+  useStore(HANDLE_STORE, "readonly", store => store.get(DIRECTORY_KEY))
+);
+
 export async function chooseCacheDirectory() {
   if (!("showDirectoryPicker" in globalThis)) {
     throw new Error("当前浏览器不支持目录授权，请升级 Edge 或 Chrome");
   }
   const handle = await globalThis.showDirectoryPicker({ id: "bili-audio-cache", mode: "readwrite" });
   await useStore(HANDLE_STORE, "readwrite", store => store.put(handle, DIRECTORY_KEY));
+  directoryHandleCache.set(handle);
   return { name: handle.name, permission: "granted" };
 }
 
 export function getCacheDirectoryHandle() {
-  return useStore(HANDLE_STORE, "readonly", store => store.get(DIRECTORY_KEY));
+  return directoryHandleCache.get();
+}
+
+export function clearCacheDirectoryHandle() {
+  directoryHandleCache.clear();
 }
 
 export async function getCacheDirectoryInfo() {
