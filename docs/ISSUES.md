@@ -200,3 +200,13 @@
 - 安全与数据边界：导入内容经白名单规范化后才写入存储，额外字段会被丢弃；“替换”前需要二次确认，且两种方式都不会读写或删除缓存目录中的音频。
 - 验证方式：新增迁移纯函数测试，覆盖最小字段导出、解析统计、非法 JSON、错误文件类型、未知版本、非法 BV 号、同 ID 合并冲突与替换模式；执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.5.0 JSON 检查和 `git diff --check`。
 - 相关文件：`services/playlist-transfer.js`、`background/service-worker.js`、`ui/app.js`、`ui/app.css`、`tests/playlist-transfer.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-019：播放顺序只能通过按钮逐项调整
+
+- 日期：2026-09-09
+- 状态：已解决
+- 修改背景：临时播放队列和自定义播放列表都需要固定顺序；作品较多时只用上移、下移按钮会产生大量重复点击。
+- 原因：底层已有安全的重排函数和命令，但界面行没有拖放语义、拖动入口或目标位置反馈。
+- 解决方案：临时队列和播放列表作品行增加原生拖放排序，序号区域作为明确的拖动柄，经过合法同类目标时显示插入位置；播放列表禁止跨列表误放。原有上移、下移和“下一首”按钮继续保留，作为窄屏、触控和键盘操作的可靠替代。
+- 验证方式：复用队列与播放列表重排纯函数测试，执行全部 Node 测试、所有 JavaScript 语法检查、Manifest 0.5.1 JSON 检查和 `git diff --check`。
+- 相关文件：`ui/app.js`、`ui/app.css`、`manifest.json`、`README.md`、`docs/ISSUES.md`

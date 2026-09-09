@@ -168,6 +168,9 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .playlist-card small { margin-top: 5px; color: var(--muted); font-size: 12px; }
 .playlist-heading { margin-top: 14px; }
 .playlist-track-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(90px, 160px) 66px 150px; align-items: center; gap: 9px; min-height: 54px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+.drag-handle { cursor: grab; user-select: none; }
+.dragging { opacity: .48; }
+.drag-over { box-shadow: inset 0 2px 0 var(--accent); }
 .playlist-track-title { min-width: 0; padding: 0; text-align: left; border: 0; background: transparent; }
 .playlist-track-title strong, .playlist-track-title small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .playlist-track-title small { margin-top: 3px; color: var(--muted); font-size: 11px; }
@@ -254,6 +257,7 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .queue-track-button strong, .queue-track-button small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-track-button small { margin-top: 3px; color: var(--muted); font-size: 11px; }
 .queue-position { color: var(--muted); text-align: center; }
+.queue-position.drag-handle:active, .track-index.drag-handle:active { cursor: grabbing; }
 .queue-row-actions { display: flex; align-items: center; gap: 2px; }
 .queue-next-button { padding: 5px 7px; color: var(--accent); font-size: 11px; border: 0; border-radius: 7px; background: transparent; }
 .queue-next-button:hover { background: var(--surface-soft); }
