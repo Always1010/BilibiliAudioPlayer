@@ -8,11 +8,13 @@ import { parsePlaylistExport, serializePlaylistExport } from "../services/playli
 import { cacheCoverageForTracks, cacheRecordBytes } from "../services/cache-records.js";
 import { loadAllSectionPages } from "../services/section-pagination.js";
 import { playbackModeLabel } from "../services/playback-mode.js";
+import { playerStructureKey } from "../services/player-render-policy.js";
 
 const root = document.getElementById("app");
 const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
 let draggedRow = null;
 let cacheToastTimer = null;
+let renderedPlayerKey = "";
 
 const ui = {
   app: null,
@@ -482,15 +484,35 @@ function directoryPermissionPromptMarkup() {
 
 function render() {
   root.innerHTML = `<div class="shell"><div class="cache-toast-host">${cacheToastMarkup()}</div>${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}${playlistImportPreviewMarkup()}${directoryPermissionPromptMarkup()}</div>`;
+  renderedPlayerKey = playerStructureKey(ui.app?.player, { queueOpen: ui.queueOpen });
   applyIconTooltips(root);
+}
+
+function updatePlayerProgress(slot) {
+  const player = ui.app?.player ?? {};
+  const progressMax = Math.max(1, Number(player.duration) || Number(player.currentTrack?.duration) || 1);
+  const currentTime = Math.min(Number(player.currentTime) || 0, progressMax);
+  const input = slot.querySelector(".progress-input");
+  if (input) {
+    input.max = String(progressMax);
+    if (document.activeElement !== input) input.value = String(currentTime);
+  }
+  const label = slot.querySelector(".time-label");
+  if (label) label.textContent = `${formatDuration(player.currentTime)} / ${formatDuration(progressMax)}`;
 }
 
 function renderPlayer() {
   const slot = root.querySelector(".player-slot");
   if (slot) {
+    const nextKey = playerStructureKey(ui.app?.player, { queueOpen: ui.queueOpen });
+    if (nextKey === renderedPlayerKey) {
+      updatePlayerProgress(slot);
+      return;
+    }
     const previousQueue = slot.querySelector(".play-queue-list");
     const scrollTop = previousQueue ? previousQueue.scrollTop : null;
     slot.innerHTML = playerAreaMarkup();
+    renderedPlayerKey = nextKey;
     applyIconTooltips(slot);
     if (scrollTop !== null) {
       const nextQueue = slot.querySelector(".play-queue-list");
