@@ -250,8 +250,13 @@ svg { width: 17px; height: 17px; pointer-events: none; }
 .cache-files-heading p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
 .cache-library { margin-top: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .cache-group + .cache-group { border-top: 1px solid var(--line); }
-.cache-group-row { width: 100%; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 50px; padding: 7px 12px; text-align: left; border: 0; background: transparent; }
+.cache-batch-toolbar { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.cache-batch-toolbar > span { margin-left: auto; color: var(--muted); font-size: 12px; }
+.cache-select-label { display: inline-flex; align-items: center; gap: 7px; }
+.cache-select-input { width: 17px; height: 17px; flex: 0 0 auto; margin: 0; accent-color: var(--accent); }
+.cache-group-row { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 50px; padding: 7px 12px; }
 .cache-group-row:hover { background: var(--surface-soft); }
+.cache-group-main { min-width: 0; flex: 1; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 0; text-align: left; border: 0; background: transparent; }
 .cache-group-toggle { display: grid; place-items: center; color: var(--muted); }
 .cache-group-copy { min-width: 0; }
 .cache-group-copy strong, .cache-group-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -401,7 +406,9 @@ html[data-layout="sidepanel"] .cache-group-children { margin-left: 10px; }
   .playlist-track-row .playlist-creator,
   .playlist-track-row > .track-duration { display: none; }
   .playlist-track-row .track-actions { grid-column: 2; justify-content: flex-start; }
-  .cache-group-row { grid-template-columns: 24px minmax(0, 1fr); }
+  .cache-batch-toolbar { align-items: flex-start; flex-wrap: wrap; }
+  .cache-batch-toolbar > span { width: calc(100% - 80px); margin-left: auto; text-align: right; }
+  .cache-group-main { grid-template-columns: 24px minmax(0, 1fr); }
   .cache-group-meta { grid-column: 2; }
   .cache-group-children { margin-left: 8px; }
   .cache-file-row { grid-template-columns: 14px minmax(0, 1fr) 24px; }

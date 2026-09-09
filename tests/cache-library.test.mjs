@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { buildCacheLibrary, cacheLibraryLocationMap, flattenCacheLocations } from "../services/cache-library.js";
+import {
+  buildCacheLibrary,
+  cacheLibraryLocationMap,
+  cacheSelectionState,
+  cacheSelectionSummary,
+  cacheTaskLocationKey,
+  flattenCacheLocations
+} from "../services/cache-library.js";
 
 const records = [{
   trackId: "BV1TREE001",
@@ -44,6 +51,16 @@ const locations = flattenCacheLocations(records);
 assert.equal(locations.length, 4, "同一作品的多个实体副本必须分别保留");
 assert.equal(new Set(locations.map(item => item.key)).size, 4, "每个实体副本必须有独立选择键");
 assert.equal(cacheLibraryLocationMap(records).get(locations[0].key).trackId, "BV1TREE001");
+const selected = new Set([locations[0].key, locations[1].key]);
+assert.equal(cacheSelectionState(locations.slice(0, 2).map(item => item.key), selected), "all");
+assert.equal(cacheSelectionState(locations.slice(1, 3).map(item => item.key), selected), "some");
+assert.deepEqual(cacheSelectionSummary(records, selected), { count: 2, size: 300 });
+assert.equal(cacheTaskLocationKey({
+  track: { id: "BV1TREE001", creator: { id: "42", name: "测试UP" } },
+  section: { type: "season", id: "7", title: "测试合集" },
+  format: "mp3",
+  bitrate: 192
+}), locations[1].key);
 
 const tree = buildCacheLibrary(records);
 assert.deepEqual(tree.map(node => node.label), ["测试UP", "我的播放列表", "恢复或未分类归档"]);

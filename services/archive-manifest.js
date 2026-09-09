@@ -49,6 +49,27 @@ export function parseArchiveManifest(source) {
   }
 }
 
+export function removeArchiveManifestFiles(manifest, removals, now = Date.now()) {
+  if (!manifest || !Array.isArray(manifest.items)) return null;
+  const byBvid = new Map();
+  for (const removal of removals ?? []) {
+    const bvid = text(removal?.bvid);
+    const filename = text(removal?.filename);
+    if (!bvid || !filename) continue;
+    if (!byBvid.has(bvid)) byBvid.set(bvid, new Set());
+    byBvid.get(bvid).add(filename);
+  }
+  return {
+    ...manifest,
+    updatedAt: new Date(now).toISOString(),
+    items: manifest.items.map(item => {
+      const filenames = byBvid.get(text(item.bvid));
+      if (!filenames?.has(text(item.filename))) return item;
+      return { ...item, filename: "", format: "", bitrate: null, size: 0 };
+    })
+  };
+}
+
 export function parseArchiveAudioFilename(filename) {
   const match = String(filename).match(/^(?:\d+\s*-\s*)?(.*?)\s*\[(BV[0-9A-Za-z]{6,30})\]\.(mp3|m4a|webm)$/i);
   if (!match) return null;
