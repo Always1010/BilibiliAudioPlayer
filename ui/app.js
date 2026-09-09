@@ -1,6 +1,7 @@
 import { MESSAGE } from "../shared/constants.js";
 import { formatDate, formatDuration, toErrorMessage } from "../shared/utils.js";
 import { chooseCacheDirectory } from "../services/file-store.js";
+import { filterTracksByKeyword } from "../services/track-search.js";
 
 const root = document.getElementById("app");
 const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
@@ -12,6 +13,7 @@ const ui = {
   activeSection: null,
   detailData: null,
   detailPage: 1,
+  trackSearchKeyword: "",
   expanded: new Set(["all"]),
   searchResults: [],
   searchKeyword: "",
@@ -201,6 +203,9 @@ function detailPage() {
   const section = ui.activeSection;
   if (!section) return creatorPage();
   const items = ui.detailData?.items ?? section.items ?? [];
+  const visibleItems = filterTracksByKeyword(items, ui.trackSearchKeyword);
+  const total = ui.detailData?.total ?? section.total;
+  const searchingTracks = Boolean(ui.trackSearchKeyword);
   const typeLabel = section.type === "season" ? "合集" : section.type === "series" ? "系列" : "全部作品";
   const subscriptionKey = `${activeCreator()?.id}:${section.key}`;
   const following = Boolean(ui.app?.subscriptions?.[subscriptionKey]?.enabled);
@@ -209,9 +214,11 @@ function detailPage() {
     ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
     <div class="detail-header">
       ${image(section.cover, section.title, "detail-cover")}
-      <div class="detail-copy"><h1>${escapeHtml(section.title)}</h1><div class="muted">${typeLabel} · ${ui.detailData?.total ?? section.total} 个作品</div><div class="detail-actions"><button class="primary-button" type="button" data-action="play-detail">${symbol("▶")}播放全部</button><button class="plain-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}">${symbol("⇩")}缓存全部</button><label class="switch"><input type="checkbox" data-action="follow-section" ${following ? "checked" : ""}>自动追更并缓存</label></div></div>
+      <div class="detail-copy"><h1>${escapeHtml(section.title)}</h1><div class="muted">${typeLabel} · ${total} 个作品</div><div class="detail-actions"><button class="primary-button" type="button" data-action="play-detail">${symbol("▶")}播放全部</button><button class="plain-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}">${symbol("⇩")}缓存全部</button><label class="switch"><input type="checkbox" data-action="follow-section" ${following ? "checked" : ""}>自动追更并缓存</label></div></div>
     </div>
-    <div class="track-table"><div class="track-table-head"><span>#</span><span>作品</span><span>发布时间</span><span>时长</span><span></span></div>${ui.loading ? '<div class="notice">正在加载作品……</div>' : trackRows(items, { ...section, items })}${!ui.loading && items.length < (ui.detailData?.total ?? section.total) ? `<button class="more-button" type="button" data-action="load-more">继续加载（已显示 ${items.length} / ${ui.detailData?.total ?? section.total}）</button>` : ""}</div>
+    <form class="track-search-form" data-form="track-search"><input class="track-search-input" name="keyword" autocomplete="off" placeholder="搜索当前${typeLabel}中的作品" value="${escapeHtml(ui.trackSearchKeyword)}" aria-label="搜索当前${typeLabel}中的作品"><button class="plain-button" type="submit">${symbol("⌕")}搜索</button>${searchingTracks ? '<button class="ghost-button" type="button" data-action="clear-track-search">清除</button>' : ""}</form>
+    ${searchingTracks && !ui.loading ? `<div class="track-search-summary">“${escapeHtml(ui.trackSearchKeyword)}”找到 ${visibleItems.length} 个作品 · 已检索 ${items.length} / ${total}</div>` : ""}
+    <div class="track-table"><div class="track-table-head"><span>#</span><span>作品</span><span>发布时间</span><span>时长</span><span></span></div>${ui.loading ? '<div class="notice">正在读取并搜索全部作品……</div>' : visibleItems.length ? trackRows(visibleItems, { ...section, items: visibleItems }) : `<div class="notice">${searchingTracks ? "没有找到匹配的作品，请尝试其他关键词。" : "该栏目暂无作品。"}</div>`}${!ui.loading && items.length < total ? `<button class="more-button" type="button" data-action="load-more">继续加载（已显示 ${items.length} / ${total}）</button>` : ""}</div>
   </section>`;
 }
 
@@ -367,6 +374,7 @@ async function openSection(key) {
   ui.activeSection = section;
   ui.detailData = null;
   ui.detailPage = 1;
+  ui.trackSearchKeyword = "";
   ui.view = "detail";
   ui.loading = true;
   ui.error = "";
@@ -380,6 +388,52 @@ async function openSection(key) {
     });
   } catch (error) {
     ui.error = toErrorMessage(error);
+  } finally {
+    ui.loading = false;
+    render();
+  }
+}
+
+async function searchDetailTracks(keyword) {
+  const section = ui.activeSection;
+  if (!section) return;
+  ui.trackSearchKeyword = String(keyword).trim();
+  ui.error = "";
+  if (!ui.trackSearchKeyword) {
+    render();
+    return;
+  }
+
+  let items = ui.detailData?.items ?? section.items ?? [];
+  let total = Number(ui.detailData?.total ?? section.total) || items.length;
+  if (items.length >= total) {
+    render();
+    return;
+  }
+
+  ui.loading = true;
+  render();
+  try {
+    const pageSize = section.type === "all" ? 50 : 100;
+    let nextPage = ui.detailPage + 1;
+    while (items.length < total) {
+      const listing = await send(MESSAGE.loadSection, {
+        creatorId: activeCreator().id,
+        section: { id: section.id, type: section.type },
+        page: nextPage,
+        pageSize
+      });
+      total = Number(listing.total) || total;
+      const known = new Set(items.map(item => String(item.id)));
+      const additions = listing.items.filter(item => !known.has(String(item.id)));
+      items = [...items, ...additions];
+      ui.detailData = { ...listing, items, total };
+      ui.detailPage = nextPage;
+      if (!listing.items.length || additions.length === 0 || listing.items.length < pageSize) break;
+      nextPage += 1;
+    }
+  } catch (error) {
+    ui.error = `搜索剩余作品时出错：${toErrorMessage(error)}`;
   } finally {
     ui.loading = false;
     render();
@@ -492,10 +546,12 @@ async function cacheWholeSection(section) {
 }
 
 root.addEventListener("submit", event => {
-  const form = event.target.closest('[data-form="search"]');
+  const form = event.target.closest("[data-form]");
   if (!form) return;
   event.preventDefault();
-  search(new FormData(form).get("keyword") ?? "");
+  const keyword = new FormData(form).get("keyword") ?? "";
+  if (form.dataset.form === "track-search") searchDetailTracks(keyword);
+  else if (form.dataset.form === "search") search(keyword);
 });
 
 root.addEventListener("change", async event => {
@@ -551,6 +607,10 @@ root.addEventListener("click", async event => {
     }
     else if (action === "open-section") await openSection(button.dataset.key);
     else if (action === "load-more") await loadMoreDetail();
+    else if (action === "clear-track-search") {
+      ui.trackSearchKeyword = "";
+      render();
+    }
     else if (action === "select-creator") {
       await send(MESSAGE.selectCreator, { id: button.dataset.id });
       ui.app.settings.activeCreatorId = button.dataset.id;
