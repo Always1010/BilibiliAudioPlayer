@@ -77,7 +77,7 @@ function cacheWorkCount() {
 function topbar() {
   const loggedIn = Boolean(ui.activeContent?.login?.isLoggedIn);
   return `<header class="topbar">
-    <div class="brand"><span class="brand-mark">♫</span><span class="brand-name">哔哩音频</span></div>
+    <div class="brand"><span class="brand-mark"><img src="icons/icon32.png" alt=""></span><span class="brand-name">哔哩音频</span></div>
     <form class="search-form" data-form="search">
       <input class="search-input" name="keyword" autocomplete="off" placeholder="搜索 UP 主名称或 UID" value="${escapeHtml(ui.searchKeyword)}" aria-label="搜索 UP 主">
       <button class="search-submit" type="submit" aria-label="搜索">${ui.searching ? symbol("◌", "spinner") : symbol("⌕")}</button>
@@ -194,7 +194,7 @@ function creatorPage() {
 }
 
 function emptyPage() {
-  return `<section class="empty-state"><div class="brand-mark" style="margin:auto">♫</div><h1>添加一个 UP 主开始使用</h1><p>输入名称进行搜索，或者直接输入唯一的数字 UID。扩展会读取全部作品、合集和系列。</p><form class="empty-search" data-form="search"><input class="search-input" name="keyword" placeholder="UP 主名称或 UID"><button class="primary-button" type="submit">搜索</button></form>${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}</section>`;
+  return `<section class="empty-state"><div class="brand-mark" style="margin:auto"><img src="icons/icon48.png" alt=""></div><h1>添加一个 UP 主开始使用</h1><p>输入名称进行搜索，或者直接输入唯一的数字 UID。扩展会读取全部作品、合集和系列。</p><form class="empty-search" data-form="search"><input class="search-input" name="keyword" placeholder="UP 主名称或 UID"><button class="primary-button" type="submit">搜索</button></form>${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}</section>`;
 }
 
 function detailPage() {
