@@ -13,6 +13,7 @@ assert.equal(PLAYBACK_RATE_MAX, 4);
 assert.equal(PLAYBACK_RATE_STEP, 0.1);
 assert.deepEqual(PLAYBACK_RATE_PRESETS, [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4]);
 assert.equal(normalizePlaybackRate(1.26), 1.3);
+assert.equal(normalizePlaybackRate(0.75), 0.75);
 assert.equal(normalizePlaybackRate(0.1), 0.5);
 assert.equal(normalizePlaybackRate(9), 4);
 assert.equal(normalizePlaybackRate("bad", 1.5), 1.5);

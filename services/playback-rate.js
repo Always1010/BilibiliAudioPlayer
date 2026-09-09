@@ -7,6 +7,8 @@ export function normalizePlaybackRate(value, fallback = 1) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return normalizePlaybackRate(fallback, 1);
   const clamped = Math.max(PLAYBACK_RATE_MIN, Math.min(PLAYBACK_RATE_MAX, numeric));
+  const preset = PLAYBACK_RATE_PRESETS.find(rate => Math.abs(rate - clamped) < Number.EPSILON);
+  if (preset != null) return preset;
   return Math.round(clamped / PLAYBACK_RATE_STEP) * PLAYBACK_RATE_STEP;
 }
 
