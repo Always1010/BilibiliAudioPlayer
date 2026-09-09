@@ -309,21 +309,21 @@ function downloadsPage() {
   const recent = info?.recent ?? [];
   const activeCount = pending.length + (current ? 1 : 0);
   const progress = Math.max(0, Math.min(100, Math.round(Number(activity?.progress ?? 0) * 100)));
-  return `<section><div class="page-heading"><div><h1>缓存管理</h1><p>本地目录、下载队列和离线文件</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="refresh-cache">${symbol("↻")}刷新</button><button class="plain-button" type="button" data-action="scan-cache-archives">${symbol("⌕")}扫描归档</button><button class="primary-button" type="button" data-action="choose-folder">${symbol("▣")}${directory?.configured ? "重新授权目录" : "选择缓存目录"}</button></div></div>
+  return `<section><div data-cache-section="heading"><div class="page-heading"><div><h1>缓存管理</h1><p>本地目录、下载队列和离线文件</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="refresh-cache">${symbol("↻")}刷新</button><button class="plain-button" type="button" data-action="scan-cache-archives">${symbol("⌕")}扫描归档</button><button class="primary-button" type="button" data-action="choose-folder">${symbol("▣")}${directory?.configured ? "重新授权目录" : "选择缓存目录"}</button></div></div>
     ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
-    ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}
-    <div class="settings-grid">
+    ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}</div>
+    <div class="settings-grid" data-cache-section="summary">
       <div class="settings-panel"><h2>本地目录</h2><div class="setting-row"><span>目录名称</span><strong>${escapeHtml(directory?.name || "尚未选择")}</strong></div><div class="setting-row"><span>访问权限</span><strong class="${directory?.permission === "granted" ? "cached" : ""}">${directory?.permission === "granted" ? "可读写" : directory?.configured ? "需要重新授权" : "未配置"}</strong></div></div>
       <div class="settings-panel"><h2>缓存概览</h2><div class="setting-row"><span>进行中与等待</span><strong>${activeCount}</strong></div><div class="setting-row"><span>本地可用作品</span><strong>${records.length}</strong></div><div class="setting-row"><span>归档副本</span><strong>${locations.length}</strong></div><div class="setting-row"><span>占用空间</span><strong>${formatBytes(totalBytes)}</strong></div></div>
     </div>
-    <div class="cache-queue-panel">
+    <div class="cache-queue-panel" data-cache-section="queue">
       <div class="cache-panel-heading"><div><h2>缓存队列</h2><p>${current ? "正在处理 1 个任务" : "当前没有正在处理的任务"}${pending.length ? `，另有 ${pending.length} 个等待中` : ""}</p></div><span class="queue-count">${activeCount}</span></div>
-      ${current ? `<div class="queue-current"><div class="queue-status-line"><span class="status-dot active"></span><strong>${escapeHtml(current.track.title)}</strong><span>${cacheStatusText(activity)}</span></div><div class="queue-meta">${escapeHtml(current.track.creator?.name || "未知UP主")} · ${cacheFormatText(current)}</div>${["downloading", "encoding"].includes(activity?.status) ? `<div class="queue-progress" aria-label="缓存进度 ${progress}%"><span style="width:${progress}%"></span></div>` : ""}</div>` : '<div class="queue-empty">缓存作品或合集后，任务会在这里按顺序显示。</div>'}
+      ${current ? `<div class="queue-current"><div class="queue-status-line"><span class="status-dot active"></span><strong>${escapeHtml(current.track.title)}</strong><span data-role="cache-current-status">${escapeHtml(cacheStatusText(activity))}</span></div><div class="queue-meta">${escapeHtml(current.track.creator?.name || "未知UP主")} · ${cacheFormatText(current)}</div>${["downloading", "encoding"].includes(activity?.status) ? `<div class="queue-progress" data-role="cache-progress" aria-label="缓存进度 ${progress}%"><span data-role="cache-progress-bar" style="width:${progress}%"></span></div>` : ""}</div>` : '<div class="queue-empty">缓存作品或合集后，任务会在这里按顺序显示。</div>'}
       ${pending.length ? `<div class="queue-list"><div class="queue-list-title">等待中</div>${pending.map((task, index) => cacheTaskRow(task, `${index + 1}`, "等待中")).join("")}</div>` : ""}
     </div>
-    ${recent.length ? `<div class="cache-history-panel"><div class="cache-panel-heading"><div><h2>最近任务</h2><p>保留本次后台会话最近 ${recent.length} 条结果</p></div></div><div class="queue-list">${recent.slice(0, 20).map(task => cacheTaskRow(task, cacheHistorySymbol(task.status), cacheHistoryText(task))).join("")}</div></div>` : ""}
-    <h2 class="cache-files-heading">已缓存文件</h2>
-    ${locations.length ? `<div class="track-table" style="margin-top:12px">${locations.slice().reverse().slice(0, 200).map((record, index) => `<div class="track-row"><span class="track-index">${String(index + 1).padStart(2, "0")}</span><div><div class="track-title">${escapeHtml(record.title)}</div><div class="track-subtitle">${escapeHtml(record.scope?.title || record.creator?.name || "未分类归档")}${record.format === "mp3" ? ` · MP3 ${record.bitrate} kbps` : " · 原始格式"}</div></div><span class="track-duration">${formatBytes(record.size)}</span><div class="track-actions"><span class="cached">✓</span></div></div>`).join("")}</div>` : '<div class="download-placeholder" style="margin-top:12px"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}
+    <div data-cache-section="history">${recent.length ? `<div class="cache-history-panel"><div class="cache-panel-heading"><div><h2>最近任务</h2><p>保留本次后台会话最近 ${recent.length} 条结果</p></div></div><div class="queue-list">${recent.slice(0, 20).map(task => cacheTaskRow(task, cacheHistorySymbol(task.status), cacheHistoryText(task))).join("")}</div></div>` : ""}</div>
+    <div data-cache-section="files"><h2 class="cache-files-heading">已缓存文件</h2>
+    ${locations.length ? `<div class="track-table" style="margin-top:12px">${locations.slice().reverse().slice(0, 200).map((record, index) => `<div class="track-row"><span class="track-index">${String(index + 1).padStart(2, "0")}</span><div><div class="track-title">${escapeHtml(record.title)}</div><div class="track-subtitle">${escapeHtml(record.scope?.title || record.creator?.name || "未分类归档")}${record.format === "mp3" ? ` · MP3 ${record.bitrate} kbps` : " · 原始格式"}</div></div><span class="track-duration">${formatBytes(record.size)}</span><div class="track-actions"><span class="cached">✓</span></div></div>`).join("")}</div>` : '<div class="download-placeholder" style="margin-top:12px"><h2>还没有本地缓存</h2><p>先选择目录，再回到 UP 主页面点击作品或栏目的下载按钮。</p></div>'}</div>
   </section>`;
 }
 
@@ -401,11 +401,11 @@ function formatBytes(bytes) {
 }
 
 function cacheStatusText(activity) {
-  if (activity.status === "failed") return `失败：${escapeHtml(activity.message || "未知错误")}`;
+  if (activity.status === "failed") return `失败：${activity.message || "未知错误"}`;
   if (activity.status === "completed") return "缓存完成";
   if (activity.status === "skipped") return "已经缓存";
   if (activity.status === "decoding") return "正在解码原始音频";
-  if (activity.status === "copying") return escapeHtml(activity.message || "正在从其他本地归档复制");
+  if (activity.status === "copying") return activity.message || "正在从其他本地归档复制";
   if (activity.status === "encoding") return `正在转换 MP3 · ${Math.round((activity.progress || 0) * 100)}%`;
   if (activity.status === "downloading") return activity.total
     ? `${Math.round((activity.progress || 0) * 100)}%（${formatBytes(activity.received)} / ${formatBytes(activity.total)}）`
@@ -508,14 +508,35 @@ function updateCacheNavCount() {
   badge.setAttribute("aria-label", `${count} 个缓存任务`);
 }
 
-function renderCacheState() {
+function patchCacheProgress() {
+  const activity = ui.cacheInfo?.activity ?? ui.cacheActivity ?? {};
+  const status = root.querySelector('[data-role="cache-current-status"]');
+  if (status) status.textContent = cacheStatusText(activity);
+  const progress = Math.max(0, Math.min(100, Math.round(Number(activity.progress ?? 0) * 100)));
+  const progressHost = root.querySelector('[data-role="cache-progress"]');
+  const progressBar = root.querySelector('[data-role="cache-progress-bar"]');
+  if (progressHost) progressHost.setAttribute("aria-label", `缓存进度 ${progress}%`);
+  if (progressBar) progressBar.style.width = `${progress}%`;
+}
+
+function replaceCacheSections() {
+  const content = root.querySelector(".content");
+  if (!content) return;
+  const template = document.createElement("template");
+  template.innerHTML = downloadsPage();
+  ["heading", "summary", "queue", "history", "files"].forEach(name => {
+    const current = content.querySelector(`[data-cache-section="${name}"]`);
+    const next = template.content.querySelector(`[data-cache-section="${name}"]`);
+    if (current && next) current.replaceWith(next);
+  });
+  applyIconTooltips(content);
+}
+
+function renderCacheState({ progressOnly = false } = {}) {
   updateCacheNavCount();
   if (ui.view === "downloads") {
-    const content = root.querySelector(".content");
-    if (content) {
-      content.innerHTML = mainContent();
-      applyIconTooltips(content);
-    }
+    if (progressOnly) patchCacheProgress();
+    else replaceCacheSections();
   }
   renderCacheToast();
 }
@@ -1222,12 +1243,15 @@ chrome.runtime.onMessage.addListener(message => {
     renderPlayer();
   }
   if (message?.type === MESSAGE.cacheEvent && ui.app) {
+    const previousStatus = ui.cacheInfo?.activity?.status ?? ui.cacheActivity?.status;
     ui.cacheInfo = { ...(ui.cacheInfo ?? {}), ...message.cache };
     ui.cacheActivity = message.cache.activity ?? message.cache;
-    if (["completed", "failed", "idle"].includes(message.cache.status)) {
+    const status = message.cache.status ?? ui.cacheActivity?.status;
+    if (["completed", "failed", "idle"].includes(status)) {
       refreshCacheInfo().then(() => renderCacheState());
     } else {
-      renderCacheState();
+      const progressOnly = status === previousStatus && ["downloading", "encoding"].includes(status);
+      renderCacheState({ progressOnly });
     }
   }
 });
