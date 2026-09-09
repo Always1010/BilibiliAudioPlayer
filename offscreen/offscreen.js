@@ -18,6 +18,7 @@ import { addCacheHistory, summarizeCacheTask } from "../services/cache-queue-sta
 import { audioStreamCandidates, mediaErrorText, mediaSourceType } from "../services/audio-stream.js";
 import { cachedPlaybackSource, onlinePlaybackSource } from "../services/playback-source.js";
 import { normalizePlaybackRate } from "../services/playback-rate.js";
+import { normalizePlaybackVolume } from "../services/playback-volume.js";
 import { insertQueueItems, removeQueueItem, reorderQueue } from "../services/play-queue.js";
 import {
   ARCHIVE_MANIFEST_FILENAME,
@@ -28,6 +29,9 @@ import {
 } from "../services/archive-manifest.js";
 
 const audio = document.getElementById("audio");
+const audioContext = new AudioContext();
+const volumeGain = audioContext.createGain();
+audioContext.createMediaElementSource(audio).connect(volumeGain).connect(audioContext.destination);
 let state = { ...DEFAULT_PLAYER };
 let lastReportedSecond = -1;
 let currentObjectUrl = null;
@@ -56,12 +60,22 @@ function publicPlayerState(patch = {}) {
     duration: Number.isFinite(audio.duration) ? audio.duration : state.duration,
     loading: Boolean(state.loading),
     source: state.source ?? null,
-    volume: audio.volume,
+    volume: state.volume,
     playbackRate: audio.playbackRate,
     mode: state.mode,
     error: null,
     ...patch
   };
+}
+
+function applyVolume(value) {
+  state.volume = normalizePlaybackVolume(value, state.volume);
+  audio.volume = 1;
+  volumeGain.gain.value = state.volume;
+}
+
+async function ensureAudioContextRunning() {
+  if (audioContext.state !== "running") await audioContext.resume();
 }
 
 async function report(patch = {}, includeQueue = false) {
@@ -279,8 +293,9 @@ async function loadAndPlay(index, resumeAt = 0) {
     source = onlinePlaybackSource();
   }
 
-  audio.volume = state.volume ?? 0.8;
+  applyVolume(state.volume);
   updateMediaSession(track);
+  await ensureAudioContextRunning();
   await audio.play();
   await report({ loading: false, source });
 }
@@ -643,7 +658,7 @@ async function handleCommand(command, payload = {}) {
   switch (command) {
     case "hydrate":
       state = { ...state, ...payload.player };
-      audio.volume = state.volume;
+      applyVolume(state.volume);
       audio.playbackRate = normalizePlaybackRate(state.playbackRate);
       return state;
     case "playQueue":
@@ -700,7 +715,10 @@ async function handleCommand(command, payload = {}) {
       break;
     case "resume":
       if (!audio.src && state.currentTrack) await loadAndPlay(state.queueIndex, state.currentTime);
-      else await audio.play();
+      else {
+        await ensureAudioContextRunning();
+        await audio.play();
+      }
       break;
     case "pause":
       audio.pause();
@@ -716,7 +734,7 @@ async function handleCommand(command, payload = {}) {
       if (Number.isFinite(payload.time)) audio.currentTime = Math.max(0, payload.time);
       break;
     case "volume":
-      audio.volume = Math.max(0, Math.min(1, Number(payload.volume)));
+      applyVolume(payload.volume);
       break;
     case "rate":
       audio.playbackRate = normalizePlaybackRate(payload.rate, state.playbackRate);
