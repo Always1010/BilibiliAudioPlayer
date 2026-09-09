@@ -114,7 +114,6 @@ function topbar() {
     <div class="top-actions">
       ${ui.activeContent ? `<span class="login-state">${loggedIn ? "● 已登录" : "○ 未登录"}</span>` : ""}
       ${isSidePanel ? `<button class="icon-button" type="button" data-action="open-full" aria-label="打开完整播放器">${symbol("↗")}</button>` : ""}
-      <button class="icon-button" type="button" data-action="show-settings" aria-label="设置">${symbol("⚙")}</button>
     </div>
   </header>`;
 }
@@ -138,6 +137,7 @@ function sidebar() {
     <button class="nav-button ${ui.view === "creator" || ui.view === "detail" ? "active" : ""}" type="button" data-action="show-creator">${symbol("⌂")}UP 主主页</button>
     <button class="nav-button ${ui.view === "playlists" ? "active" : ""}" type="button" data-action="show-playlists">${symbol("☷")}我的播放列表<span class="nav-badge subtle">${ui.app?.playlists?.length ?? 0}</span></button>
     <button class="nav-button ${ui.view === "downloads" ? "active" : ""}" type="button" data-action="show-downloads">${symbol("⇩")}缓存管理${workCount ? `<span class="nav-badge" aria-label="${workCount} 个缓存任务">${workCount}</span>` : ""}</button>
+    <button class="nav-button ${ui.view === "settings" ? "active" : ""}" type="button" data-action="show-settings">${symbol("⚙")}设置</button>
     <div class="sidebar-label">关注的 UP 主</div>
     ${creatorNav()}
   </aside>`;
