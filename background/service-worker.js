@@ -16,12 +16,16 @@ import {
   searchCreators
 } from "../services/bilibili.js";
 import { toErrorMessage } from "../shared/utils.js";
+import { configureBilibiliAudioRequestRules } from "../services/cdn-request-rules.js";
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 let creatingOffscreen = null;
 
 async function configureExtension() {
-  await initializeStorage();
+  await Promise.all([
+    initializeStorage(),
+    configureBilibiliAudioRequestRules()
+  ]);
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   const { settings } = await getAppState();
   await chrome.alarms.create(UPDATE_ALARM, {
