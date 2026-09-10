@@ -54,6 +54,12 @@
 
 MP3 转码由随扩展打包的纯 JavaScript LAME 编码器在本机后台 Worker 中完成，不上传音频，也不需要安装本地程序或运行时联网；可在设置中选择 128、192 或 320 kbps。转换期间会暂时占用额外内存和 CPU，较长作品需要等待更久。
 
+## 设计文档
+
+- [架构说明](docs/ARCHITECTURE.md)
+- [缓存与本地归档规则](docs/CACHE.md)
+- [播放器行为与状态规则](docs/PLAYBACK.md)
+
 ## 本地安装
 
 1. 打开 Edge 的 `edge://extensions` 或 Chrome 的 `chrome://extensions`。
