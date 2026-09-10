@@ -16,6 +16,8 @@
 
 播放器对用户可见的会话恢复、集合检查点、完成状态和 UI 语义统一遵循 [`PLAYBACK.md`](PLAYBACK.md)。
 
+缓存目录、实体副本、索引、扫描恢复、播放命中和删除安全边界统一遵循 [`CACHE.md`](CACHE.md)。
+
 ## 消息流
 
 ```text
@@ -23,6 +25,6 @@ UI ──请求──> Service Worker ──播放/缓存命令──> Offscreen
 UI <─状态── Service Worker <────播放/缓存事件──── Offscreen Document
 ```
 
-## 后续 MP3 阶段
+## MP3 编码边界
 
-MP3 编码器必须作为扩展自身资源打包，不能从 CDN 动态加载。建议在 Worker 中运行 WASM 编码，避免阻塞播放和界面线程；完成前设置页不会允许选择 MP3。
+MP3 编码器作为扩展自身资源打包，不从 CDN 动态加载。转码在 Offscreen Document 调度的 Worker 中执行，不上传音频；具体缓存与文件写入规则见 [`CACHE.md`](CACHE.md)。
