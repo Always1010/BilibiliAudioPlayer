@@ -1,5 +1,7 @@
 import { MESSAGE, STORAGE_KEYS, UPDATE_ALARM } from "../shared/constants.js";
 import {
+  clearPlaybackHistory,
+  deletePlaybackCheckpoint,
   getAppState,
   initializeStorage,
   savePlayerState,
@@ -39,6 +41,7 @@ import { actionLaunchConfiguration } from "../services/action-launch.js";
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 let creatingOffscreen = null;
+let playerSaveChain = Promise.resolve();
 
 async function configureExtension() {
   await Promise.all([
@@ -95,7 +98,7 @@ async function ensureOffscreenDocument() {
     contextTypes: ["OFFSCREEN_DOCUMENT"],
     documentUrls: [absoluteUrl]
   });
-  if (contexts.length) return;
+  if (contexts.length) return false;
   if (!creatingOffscreen) {
     creatingOffscreen = chrome.offscreen.createDocument({
       url: OFFSCREEN_URL,
@@ -106,6 +109,39 @@ async function ensureOffscreenDocument() {
     });
   }
   await creatingOffscreen;
+  return true;
+}
+
+async function appStateWithLivePlayer() {
+  const appState = await getAppState();
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: ["OFFSCREEN_DOCUMENT"],
+    documentUrls: [chrome.runtime.getURL(OFFSCREEN_URL)]
+  });
+  if (!contexts.length) {
+    appState.player = { ...appState.player, playing: false, loading: false, source: null };
+    return appState;
+  }
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: MESSAGE.playerCommand,
+      command: "status",
+      target: "offscreen"
+    });
+    if (response?.ok && response.data?.hydrated) {
+      const { hydrated: _, ...livePlayer } = response.data;
+      appState.player = { ...appState.player, ...livePlayer };
+    } else {
+      appState.player = { ...appState.player, playing: false, loading: false, source: null };
+    }
+  } catch {}
+  return appState;
+}
+
+function savePlayerEvent(player) {
+  const task = playerSaveChain.then(() => savePlayerState(player));
+  playerSaveChain = task.catch(() => {});
+  return task;
 }
 
 async function addCreator(creatorLike) {
@@ -305,10 +341,14 @@ async function handlePlaylistCommand(command, payload = {}) {
   if (command === "repairDurations") {
     return updateStorageValue(STORAGE_KEYS.playlists, current => repairPlaylistDurations(current, item => getVideoInfo(item)));
   }
+  if (command === "delete") {
+    const playlists = await updateStorageValue(STORAGE_KEYS.playlists, current => deletePlaylist(current, payload.playlistId));
+    await deletePlaybackCheckpoint(`playlist:${String(payload.playlistId)}`);
+    return playlists;
+  }
   return updateStorageValue(STORAGE_KEYS.playlists, current => {
     if (command === "create") return createPlaylist(current, payload.name);
     if (command === "rename") return renamePlaylist(current, payload.playlistId, payload.name);
-    if (command === "delete") return deletePlaylist(current, payload.playlistId);
     if (command === "addTracks") return addTracksToPlaylist(current, payload.playlistId, payload.tracks);
     if (command === "removeTrack") return removeTrackFromPlaylist(current, payload.playlistId, payload.bvid);
     if (command === "reorderTrack") {
@@ -362,7 +402,7 @@ async function handleMessage(message) {
   switch (message.type) {
     case MESSAGE.getAppState:
       await initializeStorage();
-      return { ok: true, data: await getAppState() };
+      return { ok: true, data: await appStateWithLivePlayer() };
     case MESSAGE.searchCreators:
       return { ok: true, data: await searchCreators(message.keyword, message.page) };
     case MESSAGE.addCreator:
@@ -378,15 +418,30 @@ async function handleMessage(message) {
     case MESSAGE.resolveAudio:
       return { ok: true, data: await resolveAudioStream(message.track) };
     case MESSAGE.playerCommand:
-      await ensureOffscreenDocument();
+      const created = await ensureOffscreenDocument();
       if (message.command !== "hydrate") {
         const { player } = await getAppState();
-        await chrome.runtime.sendMessage({
-          type: MESSAGE.playerCommand,
-          command: "hydrate",
-          payload: { player },
-          target: "offscreen"
-        });
+        let needsHydration = created;
+        if (!needsHydration) {
+          try {
+            const status = await chrome.runtime.sendMessage({
+              type: MESSAGE.playerCommand,
+              command: "status",
+              target: "offscreen"
+            });
+            needsHydration = !status?.ok || !status.data?.hydrated;
+          } catch {
+            needsHydration = true;
+          }
+        }
+        if (needsHydration) {
+          await chrome.runtime.sendMessage({
+            type: MESSAGE.playerCommand,
+            command: "hydrate",
+            payload: { player },
+            target: "offscreen"
+          });
+        }
       }
       return await chrome.runtime.sendMessage({ ...message, target: "offscreen" });
     case MESSAGE.cacheCommand:
@@ -395,13 +450,16 @@ async function handleMessage(message) {
     case MESSAGE.cacheEvent:
       return { ok: true };
     case MESSAGE.playerEvent:
-      await savePlayerState(message.player);
+      await savePlayerEvent(message.player);
       return { ok: true };
     case MESSAGE.openPlayer:
       await chrome.tabs.create({ url: chrome.runtime.getURL("player.html") });
       return { ok: true };
     case MESSAGE.saveSettings: {
       const settings = await saveSettings(message.patch);
+      if (Object.hasOwn(message.patch, "rememberProgress") && !settings.rememberProgress) {
+        await clearPlaybackHistory();
+      }
       if (Object.hasOwn(message.patch, "actionLaunchMode")) {
         await configureActionLaunch(settings.actionLaunchMode);
       }
