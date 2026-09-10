@@ -1,6 +1,6 @@
 export const PLAYBACK_RESUME_END_THRESHOLD = 5;
 
-const SCOPED_KINDS = new Set(["season", "series", "playlist"]);
+const SCOPED_KINDS = new Set(["all", "season", "series", "playlist"]);
 
 function text(value, fallback = "") {
   return String(value ?? fallback).trim();
@@ -21,6 +21,7 @@ export function playbackScopeKey(context) {
   if (!SCOPED_KINDS.has(kind) || !id) return null;
   if (kind === "playlist") return `playlist:${id}`;
   const creatorId = text(context?.creatorId);
+  if (kind === "all") return creatorId ? `all:${creatorId}` : null;
   return creatorId ? `${kind}:${creatorId}:${id}` : null;
 }
 
