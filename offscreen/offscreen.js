@@ -69,6 +69,7 @@ function publicPlayerState(patch = {}) {
     playbackRate: audio.playbackRate,
     mode: state.mode,
     error: null,
+    checkpointCompleted: Boolean(patch.checkpointCompleted),
     ...patch
   };
 }
