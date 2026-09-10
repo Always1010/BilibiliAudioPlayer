@@ -21,6 +21,7 @@ import { audioStreamCandidates, mediaErrorText, mediaSourceType } from "../servi
 import { cachedPlaybackSource, onlinePlaybackSource } from "../services/playback-source.js";
 import { normalizePlaybackRate } from "../services/playback-rate.js";
 import { normalizePlaybackVolume } from "../services/playback-volume.js";
+import { PLAYBACK_RESUME_END_THRESHOLD, playbackScopeKey } from "../services/playback-checkpoints.js";
 import { insertQueueItems, removeQueueItem, reorderQueue } from "../services/play-queue.js";
 import {
   ARCHIVE_MANIFEST_FILENAME,
@@ -36,6 +37,7 @@ const audioContext = new AudioContext();
 const volumeGain = audioContext.createGain();
 audioContext.createMediaElementSource(audio).connect(volumeGain).connect(audioContext.destination);
 let state = { ...DEFAULT_PLAYER };
+let hydrated = false;
 let lastReportedSecond = -1;
 let currentObjectUrl = null;
 let currentStreamAbort = null;
@@ -59,8 +61,8 @@ function publicPlayerState(patch = {}) {
     queueContext: state.queueContext ?? null,
     currentTrack: state.currentTrack,
     playing: !audio.paused && !audio.ended,
-    currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : state.currentTime,
-    duration: Number.isFinite(audio.duration) ? audio.duration : state.duration,
+    currentTime: audio.src && Number.isFinite(audio.currentTime) ? audio.currentTime : state.currentTime,
+    duration: audio.src && Number.isFinite(audio.duration) ? audio.duration : state.duration,
     loading: Boolean(state.loading),
     source: state.source ?? null,
     volume: state.volume,
@@ -112,14 +114,10 @@ function disposeCurrentSource() {
   }
 }
 
-function waitForAudioReady(label, resumeAt = 0) {
+function waitForCanPlay(label) {
   return new Promise((resolve, reject) => {
     const ready = () => {
       cleanup();
-      if (resumeAt > 0) {
-        try { audio.currentTime = Math.min(resumeAt, Number.isFinite(audio.duration) ? audio.duration : resumeAt); }
-        catch {}
-      }
       resolve();
     };
     const failed = () => {
@@ -134,6 +132,46 @@ function waitForAudioReady(label, resumeAt = 0) {
     audio.addEventListener("canplay", ready, { once: true });
     audio.addEventListener("error", failed, { once: true });
   });
+}
+
+function resumeSeekError(label, details) {
+  const error = new Error(`${label}无法恢复上次播放位置：${details}`);
+  error.code = "RESUME_SEEK_FAILED";
+  return error;
+}
+
+async function seekToResumePosition(label, resumeAt) {
+  if (!(resumeAt > 0)) return;
+  const target = Math.min(resumeAt, Number.isFinite(audio.duration) ? audio.duration : resumeAt);
+  try {
+    audio.currentTime = target;
+  } catch (error) {
+    throw resumeSeekError(label, error.message);
+  }
+  if (Math.abs(audio.currentTime - target) <= 2 && !audio.seeking) return;
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => finish(resumeSeekError(label, "等待媒体定位超时")), 20000);
+    const seeked = () => finish();
+    const failed = () => finish(resumeSeekError(label, mediaErrorText(audio.error)));
+    const finish = error => {
+      clearTimeout(timeout);
+      audio.removeEventListener("seeked", seeked);
+      audio.removeEventListener("error", failed);
+      error ? reject(error) : resolve();
+    };
+    audio.addEventListener("seeked", seeked, { once: true });
+    audio.addEventListener("error", failed, { once: true });
+  });
+
+  if (Math.abs(audio.currentTime - target) > 2) {
+    throw resumeSeekError(label, `实际位置为 ${Math.floor(audio.currentTime)} 秒，目标位置为 ${Math.floor(target)} 秒`);
+  }
+}
+
+async function waitForAudioReady(label, resumeAt = 0) {
+  await waitForCanPlay(label);
+  await seekToResumePosition(label, resumeAt);
 }
 
 async function fetchStreamResponse(stream, signal) {
@@ -268,10 +306,12 @@ async function loadAndPlay(index, resumeAt = 0) {
   if (!state.queue.length) throw new Error("播放队列为空");
   const normalizedIndex = Math.max(0, Math.min(index, state.queue.length - 1));
   const track = state.queue[normalizedIndex];
+  disposeCurrentSource();
   state.queueIndex = normalizedIndex;
   state.currentTrack = track;
+  state.currentTime = Math.max(0, Number(resumeAt) || 0);
+  state.duration = Math.max(0, Number(track.duration) || 0);
   await report({ loading: true, source: null, currentTrack: track, queueIndex: normalizedIndex }, true);
-  disposeCurrentSource();
 
   const cachedRecord = await getCacheRecord(track.id);
   const cachedFiles = cachedRecord
@@ -286,8 +326,9 @@ async function loadAndPlay(index, resumeAt = 0) {
       await waitForAudioReady("本地缓存加载", resumeAt);
       source = cachedPlaybackSource(cached.location);
       break;
-    } catch {
+    } catch (error) {
       disposeCurrentSource();
+      if (error?.code === "RESUME_SEEK_FAILED") throw error;
       await deleteCacheLocation(cachedRecord.trackId, cached.location.id);
     }
   }
@@ -723,9 +764,12 @@ async function handleCommand(command, payload = {}) {
   switch (command) {
     case "hydrate":
       state = { ...state, ...payload.player };
+      hydrated = true;
       applyVolume(state.volume);
       audio.playbackRate = normalizePlaybackRate(state.playbackRate);
       return state;
+    case "status":
+      return { ...publicPlayerState(), hydrated };
     case "playQueue":
       state.queue = payload.queue ?? [];
       state.queueContext = payload.queueContext ?? { kind: "manual", title: "播放队列" };
@@ -779,7 +823,14 @@ async function handleCommand(command, payload = {}) {
       includeQueue = true;
       break;
     case "resume":
-      if (!audio.src && state.currentTrack) await loadAndPlay(state.queueIndex, state.currentTime);
+      if (!audio.src && state.currentTrack) {
+        const duration = Math.max(0, Number(state.duration) || Number(state.currentTrack.duration) || 0);
+        const nearEnd = duration > 0 && duration - Number(state.currentTime) <= PLAYBACK_RESUME_END_THRESHOLD;
+        const nextIndex = nearEnd
+          ? state.queueIndex < state.queue.length - 1 ? state.queueIndex + 1 : 0
+          : state.queueIndex;
+        await loadAndPlay(nextIndex, nearEnd ? 0 : state.currentTime);
+      }
       else {
         await ensureAudioContextRunning();
         await audio.play();
@@ -821,14 +872,21 @@ audio.addEventListener("volumechange", () => report().catch(console.error));
 audio.addEventListener("ratechange", () => report().catch(console.error));
 audio.addEventListener("timeupdate", () => {
   const second = Math.floor(audio.currentTime);
-  if (second !== lastReportedSecond && second % 2 === 0) {
+  if (second !== lastReportedSecond && second % 5 === 0) {
     lastReportedSecond = second;
     report().catch(console.error);
   }
 });
-audio.addEventListener("ended", () => {
-  if (state.mode === "single") loadAndPlay(state.queueIndex).catch(error => report({ error: error.message }));
-  else move(1).catch(error => report({ error: error.message }));
+audio.addEventListener("ended", async () => {
+  const checkpointCompleted = Boolean(playbackScopeKey(state.queueContext)
+    && state.queueIndex === state.queue.length - 1);
+  try {
+    await report({ currentTime: Number.isFinite(audio.duration) ? audio.duration : state.currentTime, checkpointCompleted });
+    if (state.mode === "single") await loadAndPlay(state.queueIndex);
+    else await move(1);
+  } catch (error) {
+    await report({ error: error.message });
+  }
 });
 audio.addEventListener("error", () => {
   if (!state.loading) report({ error: `音频播放失败：${mediaErrorText(audio.error)}` }).catch(console.error);

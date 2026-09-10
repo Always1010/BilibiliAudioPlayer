@@ -6,7 +6,15 @@ export const STORAGE_KEYS = Object.freeze({
   updateState: "updateState",
   subscriptions: "subscriptions",
   playlists: "playlists",
-  favoriteSections: "favoriteSections"
+  favoriteSections: "favoriteSections",
+  playbackProgress: "playbackProgress",
+  playbackCheckpoints: "playbackCheckpoints"
+});
+
+export const DEFAULT_PLAYER_PROGRESS = Object.freeze({
+  currentTime: 0,
+  duration: 0,
+  updatedAt: 0
 });
 
 export const DEFAULT_PLAYER = Object.freeze({
