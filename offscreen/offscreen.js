@@ -22,6 +22,7 @@ import { cachedPlaybackSource, onlinePlaybackSource } from "../services/playback
 import { normalizePlaybackRate } from "../services/playback-rate.js";
 import { normalizePlaybackVolume } from "../services/playback-volume.js";
 import { PLAYBACK_RESUME_END_THRESHOLD, playbackScopeKey } from "../services/playback-checkpoints.js";
+import { playbackProgressReportPolicy } from "../services/playback-progress.js";
 import { insertQueueItems, removeQueueItem, reorderQueue } from "../services/play-queue.js";
 import {
   ARCHIVE_MANIFEST_FILENAME,
@@ -39,6 +40,7 @@ audioContext.createMediaElementSource(audio).connect(volumeGain).connect(audioCo
 let state = { ...DEFAULT_PLAYER };
 let hydrated = false;
 let lastReportedSecond = -1;
+let lastPersistedSecond = -1;
 let currentObjectUrl = null;
 let currentStreamAbort = null;
 let currentStreamPump = null;
@@ -84,12 +86,15 @@ async function ensureAudioContextRunning() {
   if (audioContext.state !== "running") await audioContext.resume();
 }
 
-async function report(patch = {}, includeQueue = false) {
+async function report(patch = {}, includeQueue = false, persist = true) {
   const player = publicPlayerState(patch);
   state = { ...state, ...player };
+  const second = Math.max(0, Math.floor(Number(player.currentTime) || 0));
+  lastReportedSecond = second;
+  if (persist) lastPersistedSecond = second;
   const eventPlayer = { ...player };
   if (!includeQueue) delete eventPlayer.queue;
-  await chrome.runtime.sendMessage({ type: MESSAGE.playerEvent, player: eventPlayer, target: "background" });
+  await chrome.runtime.sendMessage({ type: MESSAGE.playerEvent, player: eventPlayer, persist, target: "background" });
 }
 
 function updateMediaSession(track) {
@@ -872,10 +877,9 @@ audio.addEventListener("durationchange", () => report().catch(console.error));
 audio.addEventListener("volumechange", () => report().catch(console.error));
 audio.addEventListener("ratechange", () => report().catch(console.error));
 audio.addEventListener("timeupdate", () => {
-  const second = Math.floor(audio.currentTime);
-  if (second !== lastReportedSecond && second % 5 === 0) {
-    lastReportedSecond = second;
-    report().catch(console.error);
+  const policy = playbackProgressReportPolicy(audio.currentTime, lastReportedSecond, lastPersistedSecond);
+  if (policy.shouldReport) {
+    report({}, false, policy.shouldPersist).catch(console.error);
   }
 });
 audio.addEventListener("ended", async () => {

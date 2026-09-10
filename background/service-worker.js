@@ -450,7 +450,7 @@ async function handleMessage(message) {
     case MESSAGE.cacheEvent:
       return { ok: true };
     case MESSAGE.playerEvent:
-      await savePlayerEvent(message.player);
+      if (message.persist !== false) await savePlayerEvent(message.player);
       return { ok: true };
     case MESSAGE.openPlayer:
       await chrome.tabs.create({ url: chrome.runtime.getURL("player.html") });
