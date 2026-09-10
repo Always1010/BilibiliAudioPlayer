@@ -16,10 +16,12 @@ const queue = [
 const context = { kind: "series", creatorId: "42", id: "7", title: "示例系列", order: "asc" };
 
 assert.equal(playbackScopeKey(context), "series:42:7");
+assert.equal(playbackScopeKey({ kind: "all", creatorId: "42", id: "all" }), "all:42");
 assert.equal(playbackScopeKey({ kind: "season", creatorId: "42", id: "8" }), "season:42:8");
 assert.equal(playbackScopeKey({ kind: "playlist", id: "p1" }), "playlist:p1");
 assert.equal(playbackScopeKey({ kind: "search", id: "7" }), null);
 assert.equal(playbackScopeKey({ kind: "series", id: "7" }), null);
+assert.equal(playbackScopeKey({ kind: "all", id: "all" }), null);
 
 const player = {
   queue,
@@ -49,6 +51,20 @@ assert.deepEqual(checkpoint, {
 
 let checkpoints = updatePlaybackCheckpoints(null, player, 1234);
 assert.deepEqual(checkpoints.scopes["series:42:7"], checkpoint);
+const allPlayer = {
+  ...player,
+  queueContext: { kind: "all", creatorId: "42", id: "all", title: "全部作品", order: "desc" }
+};
+checkpoints = updatePlaybackCheckpoints(checkpoints, allPlayer, 1400);
+assert.deepEqual(checkpoints.scopes["all:42"], {
+  ...checkpoint,
+  scopeKey: "all:42",
+  kind: "all",
+  id: "all",
+  title: "全部作品",
+  order: "desc",
+  updatedAt: 1400
+});
 assert.deepEqual(updatePlaybackCheckpoints(checkpoints, {
   ...player,
   queueContext: { kind: "manual", title: "手动队列" }
@@ -78,7 +94,10 @@ assert.equal(resolvePlaybackCheckpoint(completed, queue).completed, true);
 assert.equal(resolvePlaybackCheckpoint(completed, queue).index, 0);
 
 checkpoints = removePlaybackCheckpoint(checkpoints, "series:42:7");
+assert.equal(checkpoints.scopes["series:42:7"], undefined);
+assert.ok(checkpoints.scopes["all:42"]);
+checkpoints = removePlaybackCheckpoint(checkpoints, "all:42");
 assert.deepEqual(checkpoints, { scopes: {} });
 assert.deepEqual(normalizePlaybackCheckpoints({ scopes: { broken: { kind: "search" } } }), { scopes: {} });
 
-console.log("播放检查点：作用域、更新、重排定位、缺失兜底、近尾跳转和完成状态通过");
+console.log("播放检查点：全部作品作用域、更新、重排定位、缺失兜底、近尾跳转和完成状态通过");
