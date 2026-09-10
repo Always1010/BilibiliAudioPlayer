@@ -20,6 +20,11 @@ import { PLAYBACK_VOLUME_MAX, PLAYBACK_VOLUME_MIN, normalizePlaybackVolume, play
 import { playerStructureKey } from "../services/player-render-policy.js";
 import { isFavoriteSection } from "../services/favorite-sections.js";
 import { normalizeTrackSortDirection, sortTracksByPublishedAt } from "../services/track-order.js";
+import {
+  playbackScopeKey,
+  resolvePlaybackCheckpoint,
+  updatePlaybackCheckpoints
+} from "../services/playback-checkpoints.js";
 
 const root = document.getElementById("app");
 const isSidePanel = document.documentElement.dataset.layout === "sidepanel";
@@ -302,6 +307,52 @@ function favoriteSectionToSection(favorite) {
   };
 }
 
+function playlistQueueContext(playlist) {
+  return {
+    kind: "playlist",
+    id: String(playlist.id),
+    title: `我的播放列表 · ${playlist.name}`,
+    order: "fixed"
+  };
+}
+
+function playbackCheckpointForContext(context) {
+  if (!ui.app?.settings?.rememberProgress) return null;
+  const scopeKey = playbackScopeKey(context);
+  return scopeKey ? ui.app?.playbackCheckpoints?.scopes?.[scopeKey] ?? null : null;
+}
+
+function playbackCheckpointForSection(section) {
+  return playbackCheckpointForContext(queueContextForSection(section));
+}
+
+function playbackCheckpointForPlaylist(playlist) {
+  return playbackCheckpointForContext(playlistQueueContext(playlist));
+}
+
+function checkpointProgressText(checkpoint, total = checkpoint?.total) {
+  if (!checkpoint) return "";
+  if (checkpoint.completed) return "已播放完";
+  const count = Math.max(0, Number(total) || Number(checkpoint.total) || 0);
+  const position = Math.max(1, Number(checkpoint.index) + 1);
+  return `已听至第 ${position}${count ? ` / ${count}` : ""} 个作品 · ${formatDuration(checkpoint.position)}`;
+}
+
+function checkpointActionLabel(checkpoint) {
+  if (!checkpoint) return "播放全部";
+  return checkpoint.completed ? "重新播放" : "继续播放";
+}
+
+function applyPlayerState(patch) {
+  ui.app.player = { ...ui.app.player, ...patch };
+  if (ui.app.settings.rememberProgress) {
+    ui.app.playbackCheckpoints = updatePlaybackCheckpoints(
+      ui.app.playbackCheckpoints,
+      ui.app.player
+    );
+  }
+}
+
 function sectionCard(section) {
   const open = ui.expanded.has(section.key);
   const typeLabel = section.type === "season" ? "合集" : section.type === "series" ? "系列" : "";
@@ -313,12 +364,16 @@ function sectionCard(section) {
   const favorite = section.type !== "all" && isSectionFavorite(section);
   const hasCover = Boolean(section.cover);
   const loading = ui.loadingSectionKey === section.key;
+  const checkpoint = playbackCheckpointForSection(section);
+  const playLabel = checkpointActionLabel(checkpoint);
+  const playAction = checkpoint ? "resume-section" : "play-section";
+  const progressText = checkpointProgressText(checkpoint, section.total);
   return `<article class="section-card ${open ? "open" : ""} ${hasCover ? "has-cover" : ""}">
     <div class="section-header">
       <button class="section-toggle" type="button" data-action="toggle-section" data-key="${escapeHtml(section.key)}" aria-expanded="${open}" aria-label="${open ? "收起" : "展开"}${escapeHtml(title)}">${symbol("›")}</button>
       ${hasCover ? `<button class="section-cover-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}" aria-label="进入 ${escapeHtml(title)} 详情">${image(section.cover, `${title}封面`, "section-cover")}</button>` : ""}
-      <button class="section-title-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}"><h2 class="section-title">${escapeHtml(title)}</h2><span class="section-meta">${section.total} 个作品${section.updatedAt ? ` · 更新于 ${formatDate(section.updatedAt)}` : ""}${following ? " · 自动追更" : ""}</span></button>
-      <div class="section-actions"><button class="icon-button" type="button" data-action="play-section" data-key="${escapeHtml(section.key)}" aria-label="${loading ? "正在读取全部作品" : "播放全部"}" ${loading ? "disabled" : ""}>${symbol(loading ? "◌" : "▶", loading ? "spinner" : "")}</button><button class="icon-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}" aria-label="缓存全部" ${loading ? "disabled" : ""}>${symbol("⇩")}</button>${section.type !== "all" ? `<button class="icon-button" type="button" data-action="toggle-favorite-section" data-key="${escapeHtml(section.key)}" aria-label="${favorite ? "取消收藏" : "收藏"}${typeLabel}">${symbol(favorite ? "★" : "☆")}</button>` : ""}<button class="ghost-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}" ${loading ? "disabled" : ""}>${loading ? "正在读取作品…" : "进入详情"}</button></div>
+      <button class="section-title-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}"><h2 class="section-title">${escapeHtml(title)}</h2><span class="section-meta">${section.total} 个作品${section.updatedAt ? ` · 更新于 ${formatDate(section.updatedAt)}` : ""}${following ? " · 自动追更" : ""}${progressText ? ` · ${escapeHtml(progressText)}` : ""}</span></button>
+      <div class="section-actions"><button class="icon-button" type="button" data-action="${playAction}" data-key="${escapeHtml(section.key)}" aria-label="${loading ? "正在读取全部作品" : playLabel}" ${loading ? "disabled" : ""}>${symbol(loading ? "◌" : checkpoint?.completed ? "↻" : "▶", loading ? "spinner" : "")}</button><button class="icon-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}" aria-label="缓存全部" ${loading ? "disabled" : ""}>${symbol("⇩")}</button>${section.type !== "all" ? `<button class="icon-button" type="button" data-action="toggle-favorite-section" data-key="${escapeHtml(section.key)}" aria-label="${favorite ? "取消收藏" : "收藏"}${typeLabel}">${symbol(favorite ? "★" : "☆")}</button>` : ""}<button class="ghost-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}" ${loading ? "disabled" : ""}>${loading ? "正在读取作品…" : "进入详情"}</button></div>
     </div>
     <div class="section-preview">${items.length ? trackRows(items, section, 4) : '<div class="notice">展开后尚无预览数据，进入详情可以重新加载。</div>'}${section.total > 4 ? `<button class="more-button" type="button" data-action="open-section" data-key="${escapeHtml(section.key)}">查看全部 ${section.total} 个作品</button>` : ""}</div>
   </article>`;
@@ -337,7 +392,7 @@ function creatorPage() {
     <div class="profile">
       ${image(creator.avatar, creator.name, "profile-avatar")}
       <div class="profile-copy"><h1>${escapeHtml(creator.name)}</h1><p>UID ${escapeHtml(creator.id)}${content?.all?.total ? ` · ${content.all.total} 个公开作品` : ""}</p></div>
-      <div class="profile-actions"><button class="ghost-button danger-button" type="button" data-action="remove-creator">移除</button><button class="plain-button" type="button" data-action="refresh-creator">${symbol("↻")}检查更新</button><button class="primary-button" type="button" data-action="resume">${symbol("▶")}继续播放</button></div>
+      <div class="profile-actions"><button class="ghost-button danger-button" type="button" data-action="remove-creator">移除</button><button class="plain-button" type="button" data-action="refresh-creator">${symbol("↻")}检查更新</button></div>
     </div>
     ${content ? sections.map(sectionCard).join("") : '<div class="notice">尚未载入内容。</div>'}
   </section>`;
@@ -361,12 +416,15 @@ function detailPage() {
   const canFollow = (ui.app?.creators ?? []).some(item => String(item.id) === String(creator?.id));
   const favorite = section.type !== "all" && isSectionFavorite(section);
   const backLabel = ui.detailOrigin === "favorites" ? "返回收藏的合集与系列" : `返回 ${activeCreator()?.name ?? "UP 主"}`;
+  const checkpoint = playbackCheckpointForSection(section);
+  const resumeLabel = checkpointActionLabel(checkpoint);
+  const progressText = checkpointProgressText(checkpoint, total);
   return `<section>
     <button class="ghost-button" type="button" data-action="show-creator">${symbol("←")}${escapeHtml(backLabel)}</button>
     ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
     <div class="detail-header">
       ${image(section.cover, section.title, "detail-cover")}
-      <div class="detail-copy"><h1>${escapeHtml(section.title)}</h1><div class="muted">${typeLabel} · ${total} 个作品${creator?.name ? ` · ${escapeHtml(creator.name)}` : ""}</div><div class="detail-actions"><button class="primary-button" type="button" data-action="play-detail">${symbol("▶")}播放全部</button><button class="plain-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}">${symbol("⇩")}缓存全部</button>${section.type !== "all" ? `<button class="plain-button" type="button" data-action="toggle-active-section-favorite">${symbol(favorite ? "★" : "☆")}${favorite ? "已收藏" : "收藏"}</button>` : ""}${canFollow ? `<label class="switch"><input type="checkbox" data-action="follow-section" ${following ? "checked" : ""}>自动追更并缓存</label>` : ""}</div></div>
+      <div class="detail-copy"><h1>${escapeHtml(section.title)}</h1><div class="muted">${typeLabel} · ${total} 个作品${creator?.name ? ` · ${escapeHtml(creator.name)}` : ""}</div>${checkpoint ? `<div class="resume-summary"><strong>${escapeHtml(progressText)}</strong>${checkpoint.completed ? "" : `<span>${escapeHtml(checkpoint.trackTitle)}</span>`}</div>` : ""}<div class="detail-actions"><button class="primary-button" type="button" data-action="${checkpoint ? "resume-detail" : "play-detail"}">${symbol(checkpoint?.completed ? "↻" : "▶")}${resumeLabel}</button>${checkpoint && !checkpoint.completed ? `<button class="plain-button" type="button" data-action="play-detail">从头播放</button>` : ""}<button class="plain-button" type="button" data-action="cache-section" data-key="${escapeHtml(section.key)}">${symbol("⇩")}缓存全部</button>${section.type !== "all" ? `<button class="plain-button" type="button" data-action="toggle-active-section-favorite">${symbol(favorite ? "★" : "☆")}${favorite ? "已收藏" : "收藏"}</button>` : ""}${canFollow ? `<label class="switch"><input type="checkbox" data-action="follow-section" ${following ? "checked" : ""}>自动追更并缓存</label>` : ""}</div></div>
     </div>
     <div class="track-list-toolbar"><form class="track-search-form" data-form="track-search"><input class="track-search-input" name="keyword" autocomplete="off" placeholder="搜索当前${typeLabel}中的作品" value="${escapeHtml(ui.trackSearchKeyword)}" aria-label="搜索当前${typeLabel}中的作品"><button class="plain-button" type="submit">${symbol("⌕")}搜索</button>${searchingTracks ? '<button class="ghost-button" type="button" data-action="clear-track-search">清除</button>' : ""}</form><button class="plain-button sort-button" type="button" data-action="toggle-sort-order" aria-label="切换作品发布时间排序">${symbol(currentTrackSortDirection() === "desc" ? "↓" : "↑")}${trackSortLabel()}</button></div>
     ${searchingTracks && !ui.loading ? `<div class="track-search-result-bar"><div class="track-search-summary">“${escapeHtml(ui.trackSearchKeyword)}”找到 ${visibleItems.length} 个作品 · 已检索 ${items.length} / ${total}</div>${visibleItems.length ? `<div class="track-search-actions"><button class="plain-button" type="button" data-action="play-search-results">${symbol("▶")}播放搜索结果</button><button class="plain-button" type="button" data-action="save-search-results">${symbol("☆")}保存到我的播放列表</button></div>` : ""}</div>` : ""}
@@ -505,11 +563,18 @@ function playlistTotalDuration(playlist) {
 function playlistCards() {
   const playlists = ui.app?.playlists ?? [];
   if (!playlists.length) return '<div class="download-placeholder"><h2>还没有播放列表</h2><p>创建一个列表，再从作品或当前播放队列中添加内容。</p></div>';
-  return `<div class="playlist-grid">${playlists.map(playlist => `<button class="playlist-card" type="button" data-action="open-playlist" data-id="${escapeHtml(playlist.id)}"><span class="playlist-card-icon">${symbol("♫")}</span><span><strong>${escapeHtml(playlist.name)}</strong><small>${playlist.items.length} 个作品 · ${formatDuration(playlistTotalDuration(playlist))}</small></span><span>${symbol("›")}</span></button>`).join("")}</div>`;
+  return `<div class="playlist-grid">${playlists.map(playlist => {
+    const checkpoint = playbackCheckpointForPlaylist(playlist);
+    const progressText = checkpointProgressText(checkpoint, playlist.items.length);
+    return `<button class="playlist-card" type="button" data-action="open-playlist" data-id="${escapeHtml(playlist.id)}"><span class="playlist-card-icon">${symbol(checkpoint?.completed ? "✓" : "♫")}</span><span><strong>${escapeHtml(playlist.name)}</strong><small>${playlist.items.length} 个作品 · ${formatDuration(playlistTotalDuration(playlist))}${progressText ? ` · ${escapeHtml(progressText)}` : ""}</small></span><span>${symbol("›")}</span></button>`;
+  }).join("")}</div>`;
 }
 
 function playlistDetail(playlist) {
   const tracks = playlist.items.map(playlistItemToTrack);
+  const checkpoint = playbackCheckpointForPlaylist(playlist);
+  const resumeLabel = checkpointActionLabel(checkpoint);
+  const progressText = checkpointProgressText(checkpoint, tracks.length);
   const format = ui.app.settings.defaultFormat;
   const bitrate = format === "mp3" ? ui.app.settings.mp3Bitrate : null;
   const coverage = cacheCoverageForTracks(tracks, ui.cacheInfo?.records ?? [], {
@@ -522,7 +587,7 @@ function playlistDetail(playlist) {
     <button class="ghost-button" type="button" data-action="close-playlist">${symbol("←")}返回我的播放列表</button>
     ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
     ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}
-    <div class="page-heading playlist-heading"><div><h1>${escapeHtml(playlist.name)}</h1><p>${playlist.items.length} 个作品 · ${formatDuration(playlistTotalDuration(playlist))} · 当前列表归档 ${coverage.archivedCount}/${coverage.total} · 本地可用 ${coverage.availableCount}/${coverage.total}</p></div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="rename-playlist" data-id="${escapeHtml(playlist.id)}">重命名</button><button class="ghost-button danger-button" type="button" data-action="delete-playlist" data-id="${escapeHtml(playlist.id)}">删除</button><button class="plain-button" type="button" data-action="cache-playlist" data-id="${escapeHtml(playlist.id)}" ${tracks.length ? "" : "disabled"}>${symbol("⇩")}缓存到列表目录</button><button class="primary-button" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}" ${tracks.length ? "" : "disabled"}>${symbol("▶")}播放全部</button></div></div>
+    <div class="page-heading playlist-heading"><div><h1>${escapeHtml(playlist.name)}</h1><p>${playlist.items.length} 个作品 · ${formatDuration(playlistTotalDuration(playlist))} · 当前列表归档 ${coverage.archivedCount}/${coverage.total} · 本地可用 ${coverage.availableCount}/${coverage.total}</p>${checkpoint ? `<div class="resume-summary"><strong>${escapeHtml(progressText)}</strong>${checkpoint.completed ? "" : `<span>${escapeHtml(checkpoint.trackTitle)}</span>`}</div>` : ""}</div><div class="page-heading-actions"><button class="plain-button" type="button" data-action="rename-playlist" data-id="${escapeHtml(playlist.id)}">重命名</button><button class="ghost-button danger-button" type="button" data-action="delete-playlist" data-id="${escapeHtml(playlist.id)}">删除</button><button class="plain-button" type="button" data-action="cache-playlist" data-id="${escapeHtml(playlist.id)}" ${tracks.length ? "" : "disabled"}>${symbol("⇩")}缓存到列表目录</button><button class="primary-button" type="button" data-action="${checkpoint ? "resume-playlist" : "play-playlist"}" data-id="${escapeHtml(playlist.id)}" ${tracks.length ? "" : "disabled"}>${symbol(checkpoint?.completed ? "↻" : "▶")}${resumeLabel}</button>${checkpoint && !checkpoint.completed ? `<button class="plain-button" type="button" data-action="play-playlist" data-id="${escapeHtml(playlist.id)}">从头播放</button>` : ""}</div></div>
     <div class="track-table"><div class="track-table-head playlist-table-head"><span>#</span><span>作品</span><span>UP 主</span><span>时长</span><span></span></div>${tracks.length ? tracks.map((track, index) => {
       const record = records.get(track.bvid);
       const inArchive = record?.locations?.some(location => location.scope?.key === `playlist:${playlist.id}`);
@@ -545,8 +610,11 @@ function favoriteSectionCard(favorite) {
   const loading = ui.loadingSectionKey === section.key;
   const hasCover = Boolean(section.cover);
   const total = Number.isFinite(section.total) ? `${section.total} 个作品` : "作品数待刷新";
+  const checkpoint = playbackCheckpointForSection(section);
+  const playLabel = checkpointActionLabel(checkpoint);
+  const progressText = checkpointProgressText(checkpoint, section.total);
   const leading = `<span class="section-toggle favorite-section-icon" aria-hidden="true">${symbol("★")}</span>${hasCover ? `<button class="section-cover-button" type="button" data-action="open-favorite-section" data-key="${escapeHtml(favorite.key)}" aria-label="进入 ${escapeHtml(section.title)} 详情">${image(section.cover, `${section.title}封面`, "section-cover")}</button>` : ""}`;
-  return `<article class="section-card favorite-section-card ${hasCover ? "has-cover" : ""}"><div class="section-header">${leading}<button class="section-title-button" type="button" data-action="open-favorite-section" data-key="${escapeHtml(favorite.key)}"><h2 class="section-title">${escapeHtml(section.title)}</h2><span class="section-meta">${typeLabel} · ${escapeHtml(favorite.creatorName)} · ${total}</span></button><div class="section-actions"><button class="icon-button" type="button" data-action="play-favorite-section" data-key="${escapeHtml(favorite.key)}" aria-label="${loading ? "正在读取全部作品" : "播放全部"}" ${loading ? "disabled" : ""}>${symbol(loading ? "◌" : "▶", loading ? "spinner" : "")}</button><button class="icon-button" type="button" data-action="remove-favorite-section" data-key="${escapeHtml(favorite.key)}" aria-label="取消收藏">${symbol("★")}</button><button class="ghost-button" type="button" data-action="open-favorite-section" data-key="${escapeHtml(favorite.key)}">进入详情</button></div></div></article>`;
+  return `<article class="section-card favorite-section-card ${hasCover ? "has-cover" : ""}"><div class="section-header">${leading}<button class="section-title-button" type="button" data-action="open-favorite-section" data-key="${escapeHtml(favorite.key)}"><h2 class="section-title">${escapeHtml(section.title)}</h2><span class="section-meta">${typeLabel} · ${escapeHtml(favorite.creatorName)} · ${total}${progressText ? ` · ${escapeHtml(progressText)}` : ""}</span></button><div class="section-actions"><button class="icon-button" type="button" data-action="${checkpoint ? "resume-favorite-section" : "play-favorite-section"}" data-key="${escapeHtml(favorite.key)}" aria-label="${loading ? "正在读取全部作品" : playLabel}" ${loading ? "disabled" : ""}>${symbol(loading ? "◌" : checkpoint?.completed ? "↻" : "▶", loading ? "spinner" : "")}</button><button class="icon-button" type="button" data-action="remove-favorite-section" data-key="${escapeHtml(favorite.key)}" aria-label="取消收藏">${symbol("★")}</button><button class="ghost-button" type="button" data-action="open-favorite-section" data-key="${escapeHtml(favorite.key)}">进入详情</button></div></div></article>`;
 }
 
 function favoriteSectionsPage() {
@@ -624,9 +692,12 @@ function playerMarkup() {
   const volumePercent = playbackVolumePercent(playbackVolume);
   const progressMax = Math.max(1, Number(player.duration) || Number(track?.duration) || 1);
   const sourceLabel = playbackSourceLabel(player.source, player.loading);
+  const canResume = Boolean(track && ui.app?.settings?.rememberProgress && Number(player.currentTime) > 0 && !player.playing);
+  const resumeContext = canResume ? player.queueContext?.title : "";
+  const playLabel = player.playing ? "暂停" : canResume ? "继续上次播放" : "播放";
   return `<footer class="player-bar">
-    <div class="now-playing">${image(track?.cover, track?.title ?? "尚未播放", "now-cover")}<div class="now-copy"><div class="now-title">${escapeHtml(track?.title ?? "选择一个作品开始播放")}</div><div class="now-meta"><span class="muted">${escapeHtml(track?.creator?.name ?? "哔哩音频")}</span>${sourceLabel ? `<span class="source-badge ${player.source?.kind === "cache" ? "local" : ""}">${escapeHtml(sourceLabel)}</span>` : ""}${player.error ? `<span class="player-error">${escapeHtml(player.error)}</span>` : ""}</div></div></div>
-    <div class="player-controls"><button class="icon-button" type="button" data-action="change-mode" aria-label="${modeLabel}">${symbol(player.mode === "shuffle" ? "⤨" : player.mode === "single" ? "①" : "↻")}</button><button class="icon-button" type="button" data-action="previous" aria-label="上一首">${symbol("◀|")}</button><button class="play-main" type="button" data-action="${player.playing ? "pause" : "resume"}" aria-label="${player.playing ? "暂停" : "播放"}">${symbol(player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="next" aria-label="下一首">${symbol("|▶")}</button><div class="volume-control"><button class="volume-toggle ${ui.volumeOpen ? "active" : ""}" type="button" data-action="toggle-volume" aria-expanded="${ui.volumeOpen}" aria-label="音量，当前 ${volumePercent}%${playbackVolume > 1 ? "（增强）" : ""}">${symbol(playbackVolume === 0 ? "🔇" : playbackVolume > 1 ? "🔊+" : "🔊")}</button>${ui.volumeOpen ? `<section class="volume-panel" aria-label="音量调节"><output class="slider-value" data-role="volume-value">${volumePercent}%${playbackVolume > 1 ? " · 增强" : ""}</output><div class="volume-range"><span aria-hidden="true">0</span><input class="volume-input" type="range" min="${PLAYBACK_VOLUME_MIN}" max="${PLAYBACK_VOLUME_MAX}" step="0.01" value="${playbackVolume}" data-action="set-volume-slider" aria-label="音量，当前 ${volumePercent}%${playbackVolume > 1 ? "，增强" : ""}"><span aria-hidden="true">200%</span></div><p>超过 100% 为增强，部分音源可能失真。</p></section>` : ""}</div><div class="speed-control"><button class="speed-toggle ${ui.rateOpen ? "active" : ""}" type="button" data-action="toggle-rate" aria-expanded="${ui.rateOpen}" aria-label="播放倍速，当前 ${playbackRateLabel(playbackRate)}">${playbackRateLabel(playbackRate)}</button>${ui.rateOpen ? `<section class="speed-panel" aria-label="播放倍速"><output class="slider-value" data-role="rate-value">${playbackRateLabel(playbackRate)}</output><div class="speed-range"><span aria-hidden="true">${PLAYBACK_RATE_MIN}×</span><input class="speed-input" type="range" min="${PLAYBACK_RATE_MIN}" max="${PLAYBACK_RATE_MAX}" step="${PLAYBACK_RATE_STEP}" value="${playbackRate}" data-action="set-rate-slider" aria-label="精细调节播放倍速，当前 ${playbackRateLabel(playbackRate)}"><span aria-hidden="true">${PLAYBACK_RATE_MAX}×</span></div></section>` : ""}</div><button class="queue-toggle ${ui.queueOpen ? "active" : ""}" type="button" data-action="toggle-play-queue" aria-expanded="${ui.queueOpen}" aria-label="查看播放队列">${symbol("☷")}<span>${player.queue?.length ?? 0}</span></button></div>
+    <div class="now-playing">${image(track?.cover, track?.title ?? "尚未播放", "now-cover")}<div class="now-copy"><div class="now-title">${escapeHtml(track?.title ?? "选择一个作品开始播放")}</div><div class="now-meta"><span class="muted">${escapeHtml(canResume ? `上次播放至 ${formatDuration(player.currentTime)}${resumeContext ? ` · ${resumeContext}` : ""}` : track?.creator?.name ?? "哔哩音频")}</span>${sourceLabel ? `<span class="source-badge ${player.source?.kind === "cache" ? "local" : ""}">${escapeHtml(sourceLabel)}</span>` : ""}${player.error ? `<span class="player-error">${escapeHtml(player.error)}</span>` : ""}</div></div></div>
+    <div class="player-controls"><button class="icon-button" type="button" data-action="change-mode" aria-label="${modeLabel}">${symbol(player.mode === "shuffle" ? "⤨" : player.mode === "single" ? "①" : "↻")}</button><button class="icon-button" type="button" data-action="previous" aria-label="上一首" ${track ? "" : "disabled"}>${symbol("◀|")}</button><button class="play-main" type="button" data-action="${player.playing ? "pause" : "resume"}" aria-label="${playLabel}" ${track ? "" : "disabled"}>${symbol(player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="next" aria-label="下一首" ${track ? "" : "disabled"}>${symbol("|▶")}</button><div class="volume-control"><button class="volume-toggle ${ui.volumeOpen ? "active" : ""}" type="button" data-action="toggle-volume" aria-expanded="${ui.volumeOpen}" aria-label="音量，当前 ${volumePercent}%${playbackVolume > 1 ? "（增强）" : ""}">${symbol(playbackVolume === 0 ? "🔇" : playbackVolume > 1 ? "🔊+" : "🔊")}</button>${ui.volumeOpen ? `<section class="volume-panel" aria-label="音量调节"><output class="slider-value" data-role="volume-value">${volumePercent}%${playbackVolume > 1 ? " · 增强" : ""}</output><div class="volume-range"><span aria-hidden="true">0</span><input class="volume-input" type="range" min="${PLAYBACK_VOLUME_MIN}" max="${PLAYBACK_VOLUME_MAX}" step="0.01" value="${playbackVolume}" data-action="set-volume-slider" aria-label="音量，当前 ${volumePercent}%${playbackVolume > 1 ? "，增强" : ""}"><span aria-hidden="true">200%</span></div><p>超过 100% 为增强，部分音源可能失真。</p></section>` : ""}</div><div class="speed-control"><button class="speed-toggle ${ui.rateOpen ? "active" : ""}" type="button" data-action="toggle-rate" aria-expanded="${ui.rateOpen}" aria-label="播放倍速，当前 ${playbackRateLabel(playbackRate)}">${playbackRateLabel(playbackRate)}</button>${ui.rateOpen ? `<section class="speed-panel" aria-label="播放倍速"><output class="slider-value" data-role="rate-value">${playbackRateLabel(playbackRate)}</output><div class="speed-range"><span aria-hidden="true">${PLAYBACK_RATE_MIN}×</span><input class="speed-input" type="range" min="${PLAYBACK_RATE_MIN}" max="${PLAYBACK_RATE_MAX}" step="${PLAYBACK_RATE_STEP}" value="${playbackRate}" data-action="set-rate-slider" aria-label="精细调节播放倍速，当前 ${playbackRateLabel(playbackRate)}"><span aria-hidden="true">${PLAYBACK_RATE_MAX}×</span></div></section>` : ""}</div><button class="queue-toggle ${ui.queueOpen ? "active" : ""}" type="button" data-action="toggle-play-queue" aria-expanded="${ui.queueOpen}" aria-label="查看播放队列">${symbol("☷")}<span>${player.queue?.length ?? 0}</span></button></div>
     <div class="progress-area"><input class="progress-input" type="range" min="0" max="${progressMax}" value="${Math.min(Number(player.currentTime) || 0, progressMax)}" step="1" data-action="seek" aria-label="播放进度"><span class="time-label">${formatDuration(player.currentTime)} / ${formatDuration(progressMax)}</span></div>
   </footer>`;
 }
@@ -751,13 +822,14 @@ function renderCacheState({ progressOnly = false } = {}) {
   renderCacheToast();
 }
 
-function queueContextForSection(section) {
+function queueContextForSection(section, order = currentTrackSortDirection()) {
   const creator = creatorForSection(section);
   return {
     kind: section.type,
     id: String(section.id),
     creatorId: String(creator?.id || ""),
-    title: `${creator?.name || "UP 主"} · ${section.title}`
+    title: `${creator?.name || "UP 主"} · ${section.title}`,
+    order: normalizeTrackSortDirection(order)
   };
 }
 
@@ -1017,14 +1089,59 @@ async function loadCompleteSection(section) {
   }
 }
 
-function queueForSection(section, items = section.items ?? []) {
-  return sortTracksByPublishedAt(items, currentTrackSortDirection()).map(track => trackWithContext(track, section));
+function queueForSection(section, items = section.items ?? [], order = currentTrackSortDirection()) {
+  return sortTracksByPublishedAt(items, normalizeTrackSortDirection(order)).map(track => trackWithContext(track, section));
+}
+
+async function playSectionFromCheckpoint(section) {
+  const checkpoint = playbackCheckpointForSection(section);
+  if (!checkpoint) {
+    const items = await loadCompleteSection(section);
+    await playerCommand("playQueue", {
+      queue: queueForSection(section, items),
+      index: 0,
+      queueContext: queueContextForSection(section)
+    });
+    return;
+  }
+  const items = await loadCompleteSection(section);
+  const queue = queueForSection(section, items, checkpoint.order);
+  const resolved = resolvePlaybackCheckpoint(checkpoint, queue);
+  if (!resolved) throw new Error("当前栏目没有可继续播放的作品");
+  if (resolved.missingTrack) {
+    ui.notice = `上次播放的“${checkpoint.trackTitle}”已不在当前栏目，已从最接近的位置继续。`;
+  }
+  await playerCommand("playQueue", {
+    queue,
+    index: resolved.index,
+    resumeAt: resolved.position,
+    queueContext: queueContextForSection(section, checkpoint.order)
+  });
+  render();
+}
+
+async function playPlaylistFromCheckpoint(playlist) {
+  const queue = playlist.items.map(playlistItemToTrack);
+  const checkpoint = playbackCheckpointForPlaylist(playlist);
+  const resolved = checkpoint ? resolvePlaybackCheckpoint(checkpoint, queue) : null;
+  if (!queue.length) throw new Error("播放列表没有可播放的作品");
+  if (checkpoint && !resolved) throw new Error("播放列表没有可继续播放的作品");
+  if (resolved?.missingTrack) {
+    ui.notice = `上次播放的“${checkpoint.trackTitle}”已不在列表中，已从最接近的位置继续。`;
+  }
+  await playerCommand("playQueue", {
+    queue,
+    index: resolved?.index ?? 0,
+    resumeAt: resolved?.position ?? 0,
+    queueContext: playlistQueueContext(playlist)
+  });
+  render();
 }
 
 async function playerCommand(command, payload = {}) {
   try {
     const player = await send(MESSAGE.playerCommand, { command, payload });
-    ui.app.player = { ...ui.app.player, ...player };
+    applyPlayerState(player);
     renderPlayer();
   } catch (error) {
     ui.app.player = { ...ui.app.player, error: toErrorMessage(error), loading: false };
@@ -1314,6 +1431,9 @@ root.addEventListener("change", async event => {
   if (["mp3Bitrate", "updateIntervalMinutes"].includes(setting.name)) value = Number(value);
   try {
     ui.app.settings = await send(MESSAGE.saveSettings, { patch: { [setting.name]: value } });
+    if (setting.name === "rememberProgress" && !value) {
+      ui.app.playbackCheckpoints = { scopes: {} };
+    }
   } catch (error) {
     ui.error = toErrorMessage(error);
   }
@@ -1552,7 +1672,12 @@ root.addEventListener("click", async event => {
     else if (action === "play-playlist") {
       const playlist = ui.app.playlists.find(item => item.id === button.dataset.id);
       const queue = playlist.items.map(playlistItemToTrack);
-      await playerCommand("playQueue", { queue, index: Number(button.dataset.index) || 0, queueContext: { kind: "playlist", id: playlist.id, title: `我的播放列表 · ${playlist.name}` } });
+      await playerCommand("playQueue", { queue, index: Number(button.dataset.index) || 0, queueContext: playlistQueueContext(playlist) });
+    }
+    else if (action === "resume-playlist") {
+      const playlist = ui.app.playlists.find(item => item.id === button.dataset.id);
+      if (!playlist) throw new Error("播放列表不存在");
+      await playPlaylistFromCheckpoint(playlist);
     }
     else if (action === "cache-playlist") {
       const playlist = ui.app.playlists.find(item => item.id === button.dataset.id);
@@ -1599,6 +1724,11 @@ root.addEventListener("click", async event => {
       const section = favoriteSectionToSection(favorite);
       const items = await loadCompleteSection(section);
       await playerCommand("playQueue", { queue: queueForSection(section, items), index: 0, queueContext: queueContextForSection(section) });
+    }
+    else if (action === "resume-favorite-section") {
+      const favorite = (ui.app.favoriteSections ?? []).find(item => item.key === button.dataset.key);
+      if (!favorite) throw new Error("收藏的栏目不存在");
+      await playSectionFromCheckpoint(favoriteSectionToSection(favorite));
     }
     else if (action === "open-section") await openSection(button.dataset.key);
     else if (action === "load-more") await loadMoreDetail();
@@ -1647,9 +1777,15 @@ root.addEventListener("click", async event => {
       const items = await loadCompleteSection(section);
       await playerCommand("playQueue", { queue: queueForSection(section, items), index: 0, queueContext: queueContextForSection(section) });
     }
+    else if (action === "resume-section") {
+      await playSectionFromCheckpoint(findSection(button.dataset.key));
+    }
     else if (action === "play-detail") {
       const items = await loadCompleteSection(ui.activeSection);
       await playerCommand("playQueue", { queue: queueForSection(ui.activeSection, items), index: 0, queueContext: queueContextForSection(ui.activeSection) });
+    }
+    else if (action === "resume-detail") {
+      await playSectionFromCheckpoint(ui.activeSection);
     }
     else if (action === "toggle-sort-order") {
       const next = currentTrackSortDirection() === "desc" ? "asc" : "desc";
@@ -1664,7 +1800,10 @@ root.addEventListener("click", async event => {
     }
     else if (action === "play-track") {
       const section = findSection(button.dataset.sectionKey) ?? ui.activeSection;
-      const items = ui.view === "detail" ? ui.detailData?.items ?? [] : section.items ?? [];
+      let items = ui.view === "detail" ? ui.detailData?.items ?? [] : section.items ?? [];
+      if (["season", "series"].includes(section?.type) && items.length < Number(section.total)) {
+        items = await loadCompleteSection(section);
+      }
       const queue = queueForSection(section, items);
       const index = Math.max(0, queue.findIndex(track => String(track.id) === String(button.dataset.trackId)));
       await playerCommand("playQueue", { queue, index, queueContext: queueContextForSection(section) });
@@ -1729,7 +1868,7 @@ root.addEventListener("click", async event => {
 
 chrome.runtime.onMessage.addListener(message => {
   if (message?.type === MESSAGE.playerEvent && ui.app) {
-    ui.app.player = { ...ui.app.player, ...message.player };
+    applyPlayerState(message.player);
     renderPlayer();
   }
   if (message?.type === MESSAGE.cacheEvent && ui.app) {
