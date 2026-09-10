@@ -32,7 +32,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   defaultFormat: "original",
   mp3Bitrate: 192,
   rememberProgress: true,
-  checkUpdatesOnStartup: true
+  checkUpdatesOnStartup: true,
+  actionLaunchMode: "sidepanel"
 });
 
 export const MESSAGE = Object.freeze({
