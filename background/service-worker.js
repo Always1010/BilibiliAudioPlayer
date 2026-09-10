@@ -35,6 +35,7 @@ import {
   normalizeFavoriteSections,
   removeFavoriteSection
 } from "../services/favorite-sections.js";
+import { actionLaunchConfiguration } from "../services/action-launch.js";
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 let creatingOffscreen = null;
@@ -44,11 +45,19 @@ async function configureExtension() {
     initializeStorage(),
     configureBilibiliAudioRequestRules()
   ]);
-  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   const { settings } = await getAppState();
+  await configureActionLaunch(settings.actionLaunchMode);
   await chrome.alarms.create(UPDATE_ALARM, {
     periodInMinutes: Math.max(30, settings.updateIntervalMinutes)
   });
+}
+
+async function configureActionLaunch(mode) {
+  const configuration = actionLaunchConfiguration(mode);
+  await Promise.all([
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: configuration.opensSidePanel }),
+    chrome.action.setTitle({ title: configuration.title })
+  ]);
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -60,6 +69,18 @@ chrome.runtime.onStartup.addListener(() => {
     .then(async () => {
       const { settings } = await getAppState();
       if (settings.checkUpdatesOnStartup) await checkAllCreators();
+    })
+    .catch(console.error);
+});
+
+chrome.action.onClicked.addListener(() => {
+  getAppState()
+    .then(({ settings }) => {
+      const configuration = actionLaunchConfiguration(settings.actionLaunchMode);
+      if (configuration.mode === "page") {
+        return chrome.tabs.create({ url: chrome.runtime.getURL("player.html") });
+      }
+      return undefined;
     })
     .catch(console.error);
 });
@@ -381,6 +402,9 @@ async function handleMessage(message) {
       return { ok: true };
     case MESSAGE.saveSettings: {
       const settings = await saveSettings(message.patch);
+      if (Object.hasOwn(message.patch, "actionLaunchMode")) {
+        await configureActionLaunch(settings.actionLaunchMode);
+      }
       if (message.patch.updateIntervalMinutes) {
         await chrome.alarms.create(UPDATE_ALARM, {
           periodInMinutes: Math.max(30, settings.updateIntervalMinutes)

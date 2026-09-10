@@ -2,6 +2,16 @@
 
 本文件用于记录项目开发过程中发现的问题、原因、处理方案和验证结果。问题对应的代码修改必须与本日志更新放在同一个 Git commit 中。
 
+## ISSUE-053：工具栏图标只能固定打开侧边栏
+
+- 日期：2026-09-10
+- 状态：已解决
+- 现象：点击扩展工具栏图标始终打开侧边栏；侧边栏空间较窄时，用户无法将完整页面设为默认入口。
+- 原因：后台启动时把 `sidePanel.openPanelOnActionClick` 固定为 `true`，设置模型和设置界面均没有记录或修改入口打开方式。
+- 解决方案：新增持久化的 `actionLaunchMode` 设置，默认值为“打开侧边栏”。设置页提供“打开侧边栏”与“打开完整页面”选项；切换后立即更新浏览器的工具栏点击行为和提示文字。完整页面模式下，点击图标会创建播放器页面标签页。
+- 验证方式：新增入口配置单元测试；执行全部 Node 测试、JavaScript 语法检查、Manifest 0.10.2 JSON 检查与 `git diff --check`。在浏览器中分别选择两种打开方式，重新点击图标，确认侧边栏模式打开侧边栏、完整页面模式打开播放器标签页，重启浏览器后设置保持。
+- 相关文件：`services/action-launch.js`、`tests/action-launch.test.mjs`、`shared/constants.js`、`background/service-worker.js`、`ui/app.js`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
 ## ISSUE-001：合集与系列未能加载
 
 - 日期：2026-09-09
