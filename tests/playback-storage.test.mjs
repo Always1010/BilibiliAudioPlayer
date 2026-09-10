@@ -46,6 +46,7 @@ const player = {
   duration: 200,
   playing: true
 };
+values.playlists = [{ id: "p1", name: "通勤", items: [] }];
 await savePlayerState(player);
 assert.equal("currentTime" in values.player, false);
 assert.equal(values.player.queue.length, 2);
@@ -58,8 +59,13 @@ assert.equal("player" in writes.at(-1), false);
 assert.equal(writes.at(-1).playbackProgress.currentTime, 67);
 assert.equal(writes.at(-1).playbackCheckpoints.scopes["playlist:p1"].position, 67);
 
+values.playlists = [];
+await savePlayerState({ ...player, currentTime: 68 });
+assert.equal(values.playbackCheckpoints.scopes["playlist:p1"], undefined);
+values.playlists = [{ id: "p1", name: "通勤", items: [] }];
+
 const appState = await getAppState();
-assert.equal(appState.player.currentTime, 67);
+assert.equal(appState.player.currentTime, 68);
 assert.equal(appState.player.queue[1].id, "BV2");
 
 await saveSettings({ rememberProgress: false });

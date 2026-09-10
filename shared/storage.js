@@ -9,6 +9,7 @@ import {
 import { normalizeFavoriteSections } from "../services/favorite-sections.js";
 import {
   normalizePlaybackCheckpoints,
+  playbackScopeKey,
   removePlaybackCheckpoint,
   updatePlaybackCheckpoints
 } from "../services/playback-checkpoints.js";
@@ -108,7 +109,8 @@ export async function savePlayerState(patch) {
     STORAGE_KEYS.player,
     STORAGE_KEYS.playbackProgress,
     STORAGE_KEYS.playbackCheckpoints,
-    STORAGE_KEYS.settings
+    STORAGE_KEYS.settings,
+    STORAGE_KEYS.playlists
   ]);
   const current = {
     ...DEFAULT_PLAYER,
@@ -128,9 +130,15 @@ export async function savePlayerState(patch) {
       updatedAt: Date.now()
     }
     : { ...DEFAULT_PLAYER_PROGRESS };
-  const playbackCheckpoints = rememberProgress
+  let playbackCheckpoints = rememberProgress
     ? updatePlaybackCheckpoints(stored[STORAGE_KEYS.playbackCheckpoints], livePlayer, progress.updatedAt)
     : normalizePlaybackCheckpoints(null);
+  const scopeKey = playbackScopeKey(livePlayer.queueContext);
+  if (rememberProgress && livePlayer.queueContext?.kind === "playlist" && scopeKey) {
+    const playlistExists = (stored[STORAGE_KEYS.playlists] ?? [])
+      .some(playlist => String(playlist.id) === String(livePlayer.queueContext.id));
+    if (!playlistExists) playbackCheckpoints = removePlaybackCheckpoint(playbackCheckpoints, scopeKey);
+  }
   const changes = {};
   if (JSON.stringify(stored[STORAGE_KEYS.player] ?? null) !== JSON.stringify(player)) changes[STORAGE_KEYS.player] = player;
   if (JSON.stringify(stored[STORAGE_KEYS.playbackProgress] ?? null) !== JSON.stringify(progress)) changes[STORAGE_KEYS.playbackProgress] = progress;

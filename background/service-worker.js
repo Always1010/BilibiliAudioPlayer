@@ -458,6 +458,7 @@ async function handleMessage(message) {
     case MESSAGE.saveSettings: {
       const settings = await saveSettings(message.patch);
       if (Object.hasOwn(message.patch, "rememberProgress") && !settings.rememberProgress) {
+        await playerSaveChain;
         await clearPlaybackHistory();
       }
       if (Object.hasOwn(message.patch, "actionLaunchMode")) {
