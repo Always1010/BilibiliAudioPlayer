@@ -832,3 +832,13 @@
 - 解决方案：新作品先持久保存 autoCacheJobs 再推进发现列表；校验 ok 和 accepted，入队保持待完成。按订阅版本、尝试身份与目标 rootId 匹配完成/跳过/失败事件，历史 outcomeId 去重；失败保留并指数退避，启动及追更检查对照活动/等待/最近任务恢复，取消订阅过滤旧任务。手动与自动相同目标合并时保留所有自动任务身份；过期根任务拒绝执行。
 - 验证方式：真实后台与离屏 VM 测试覆盖拒绝响应、持久保存先于发送、活动去重、重启丢队列恢复、权限失败、根与尝试身份不匹配、历史失败去重、完成先于接收响应、关闭订阅及串行写等待期间新增任务保留。追更分页、订阅并发、缓存队列和播放存储回归通过。
 - 相关文件：background/service-worker.js、offscreen/offscreen.js、services/auto-cache-jobs.js、services/cache-queue-state.js、shared/constants.js、shared/storage.js、docs/CACHE.md、tests/auto-cache-jobs.test.mjs、tests/auto-cache-events.test.mjs 及对应回归辅助文件。
+
+## ISSUE-081：扫描与删除交叉执行产生幽灵索引
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：扫描已读文件但尚未提交索引时，删除先完成，迟到扫描随后重新登记不存在文件；下载写入与删除也可能交叉。
+- 原因：根目录共享锁只阻止目录切换，文件生命周期仍可并行。
+- 解决方案：按根共享锁再文件独占锁的固定顺序，串行执行整批缓存、扫描和删除，包含清单操作。索引写入只持根共享锁；外层删除向内部传递活跃租约避免递归独占死锁，结束后租约不可复用。
+- 验证方式：受控扫描与删除交错最终无幽灵索引，缓存与删除互斥，租约内部删除可完成且退出后拒绝复用；真实 offscreen 删除命令与 file-store 锁集成通过。根隔离和访问错误回归通过；另用 Node 原生 Web Locks 验证共享锁嵌套和独占忙时拒绝。
+- 相关文件：services/file-store.js、offscreen/offscreen.js、docs/CACHE.md、tests/cache-file-operations.test.mjs。
