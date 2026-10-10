@@ -538,7 +538,7 @@ function cacheSelectionCheckbox(node, busyKeys) {
 
 function cacheLibraryNodeMarkup(node, depth = 0, busyKeys = new Set()) {
   if (node.kind === "file") {
-    const format = node.format === "mp3" ? `MP3 ${node.bitrate} kbps` : "原始格式";
+    const format = node.format === "mp3" ? Number(node.bitrate) > 0 ? `MP3 ${node.bitrate} kbps` : "MP3 码率未知" : "原始格式";
     const busy = busyKeys.has(node.key);
     return `<div class="cache-file-row">${ui.cacheManageMode ? cacheSelectionCheckbox(node, busyKeys) : '<span class="cache-tree-guide"></span>'}<div class="cache-file-copy"><div class="track-title">${escapeHtml(node.title)}</div><div class="track-subtitle">${escapeHtml(node.bvid || node.trackId)} · ${format}${busy ? " · 缓存任务进行中" : ""}</div></div><span class="track-duration">${formatBytes(node.size)}</span>${ui.cacheManageMode ? "" : `<button class="icon-button danger-button" type="button" data-action="delete-cache-node" data-key="${escapeHtml(node.key)}" aria-label="删除缓存" ${busy || ui.cacheDeleting ? "disabled" : ""}>${symbol("×")}</button>`}</div>`;
   }

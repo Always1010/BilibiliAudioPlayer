@@ -53,6 +53,10 @@ assert.deepEqual(parseArchiveAudioFilename("001 - 第一首 [BV1ARCHIVE1].mp3"),
   format: "mp3"
 });
 assert.equal(parseArchiveAudioFilename("没有BV号.mp3"), null);
+assert.deepEqual(parseArchiveAudioFilename("001 - 第一首 [BV1ARCHIVE1] [192kbps].mp3"), {
+  title: "第一首", bvid: "BV1ARCHIVE1", extension: "mp3", format: "mp3", bitrate: 192
+});
+assert.equal(parseArchiveAudioFilename("第一首 [BV1ARCHIVE1] [320kbps].m4a"), null);
 assert.deepEqual(recoveredArchiveScope(["我的播放列表", "工作音乐 [abcd]"]), {
   key: "recovered:我的播放列表/工作音乐 [abcd]",
   type: "playlist",

@@ -520,7 +520,7 @@ async function scanArchiveDirectory(directory, path, summary) {
       const creator = item.creatorId || item.creatorName
         ? { id: String(item.creatorId || ""), name: String(item.creatorName || "") }
         : null;
-      const bitrate = parsed.format === "mp3" ? Number(item.bitrate) || null : null;
+      const bitrate = parsed.format === "mp3" ? parsed.bitrate || Number(item.bitrate) || null : null;
       const location = {
         id: manifest?.scope?.key
           ? `${scope.key}:${parsed.format}:${parsed.format === "mp3" ? bitrate ?? "unknown" : "source"}`
@@ -638,7 +638,8 @@ async function downloadTrack(task, getRoot) {
   const directory = await getOrCreateDirectory(root, parts);
   const prefix = Number.isFinite(task.position) ? `${String(task.position + 1).padStart(3, "0")} - ` : "";
   const identity = task.track.bvid ? ` [${safeFilePart(task.track.bvid)}]` : "";
-  const filename = `${prefix}${safeFilePart(task.track.title)}${identity}.${extension}`;
+  const quality = task.format === "mp3" ? ` [${task.bitrate}kbps]` : "";
+  const filename = `${prefix}${safeFilePart(task.track.title)}${identity}${quality}.${extension}`;
   const fileHandle = await directory.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
 
