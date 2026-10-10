@@ -655,3 +655,13 @@
 - 解决方案：缓存目录树增加单项/整组删除按钮和批量管理模式，支持父子级联选择、半选状态、全选、已选数量及空间汇总。删除请求按作品与缓存位置精确定位实体副本，获得读写权限后逐个删除文件，成功或确认文件已不存在时才移除索引；同一 BV 号在其他栏目或播放列表中的副本保持不变。播放列表文件删除后同步清单，只有目录确实为空时才逐级清理，未知文件不会被递归删除；正在下载或等待中的相同目标禁止删除，失败项保留并显示结果。
 - 验证方式：扩展缓存目录树、目录文件操作和归档清单测试，覆盖级联选择、任务目标匹配、空间统计、精确文件删除、失效文件清理、空目录安全清理和清单条目更新；执行全部 Node 测试、JavaScript 语法检查、Manifest 0.10.1 JSON 检查与 `git diff --check`。
 - 相关文件：`services/cache-library.js`、`services/file-store.js`、`services/archive-manifest.js`、`offscreen/offscreen.js`、`ui/app.js`、`ui/app.css`、`tests/cache-library.test.mjs`、`tests/file-store.test.mjs`、`tests/archive-manifest.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
+
+## ISSUE-053：异步存储更新覆盖用户已完成的编辑
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：并发播放列表、设置或收藏操作可能返回成功却丢失编辑；历史时长补全期间的新增、删除、重命名和重排会被旧快照覆盖。
+- 原因：chrome.storage.local 的读取与写回不原子，耗时网络修复在读取旧值后等待，再整值覆盖；播放器多键保存与检查点清理也缺少共同协调。
+- 解决方案：在后台按存储键协调更新，并为播放器保存、清空、检查点删除及初始化预留重叠键。时长请求移到临界区外，完成后仅按播放列表 ID 和 BV 号把有效时长合并到最新数据，保留用户编辑和已有正时长，不恢复已删除对象。
+- 验证方式：播放状态存储及播放列表测试通过，覆盖并发更新、失败后继续、保存与清空/删除检查点顺序，以及时长修复期间新增、重命名、重排、删除列表和作品；相关 JavaScript 语法与 git diff --check 通过。
+- 相关文件：`shared/storage.js`、`services/playlists.js`、`background/service-worker.js`、`tests/playback-storage.test.mjs`、`tests/playlists.test.mjs`、`docs/ISSUES.md`
