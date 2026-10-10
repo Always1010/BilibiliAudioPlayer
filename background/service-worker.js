@@ -39,11 +39,13 @@ import {
 } from "../services/favorite-sections.js";
 import { actionLaunchConfiguration } from "../services/action-launch.js";
 import { loadSubscriptionVideos, mergeSubscriptionCheckResults, subscriptionIsCurrent } from "../services/subscriptions.js";
+import { autoCacheJobIsCurrent, cacheOutcomeKeys, createAutoCacheJobs, failedAutoCacheJob } from "../services/auto-cache-jobs.js";
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 let creatingOffscreen = null;
 let playerSaveChain = Promise.resolve();
 let checkingCreators = null;
+let dispatchingAutoCache = null;
 
 async function configureExtension() {
   await Promise.all([
@@ -66,12 +68,13 @@ async function configureActionLaunch(mode) {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  configureExtension().catch(console.error);
+  configureExtension().then(dispatchAutoCacheJobs).catch(console.error);
 });
 
 chrome.runtime.onStartup.addListener(() => {
   configureExtension()
     .then(async () => {
+      await dispatchAutoCacheJobs();
       const { settings } = await getAppState();
       if (settings.checkUpdatesOnStartup) await checkAllCreators();
     })
@@ -270,34 +273,18 @@ async function checkCreators() {
         const known = new Set(subscription.lastSeenIds ?? []);
         const needsBaseline = subscription.baselinePending || subscription.baselineVersion !== 2;
         const newItems = needsBaseline ? [] : listing.items.filter(item => !known.has(String(item.id)));
-        let accepted = newItems.length === 0;
+        let accepted = newItems.length === 0 || subscription.mode !== "download";
         if (newItems.length && subscription.mode === "download") {
-          await ensureOffscreenDocument();
-          const status = await chrome.runtime.sendMessage({
-            type: MESSAGE.cacheCommand,
-            command: "status",
-            target: "offscreen"
+          if (!subscriptionIsCurrent((await getAppState()).subscriptions[key], subscription)) continue;
+          const tracks = newItems.map(track => ({ ...track, creator: { id: creator.id, name: creator.name }, sectionTitle: subscription.section.title }));
+          const jobs = createAutoCacheJobs(key, subscription, tracks, state.settings);
+          await updateStorageValue(STORAGE_KEYS.autoCacheJobs, current => {
+            const next = { ...(current ?? {}) };
+            for (const job of jobs) next[job.key] ??= job;
+            return next;
           });
-          if (status?.ok && status.data?.directory?.permission === "granted") {
-            if (!subscriptionIsCurrent((await getAppState()).subscriptions[key], subscription)) continue;
-            const tracks = newItems.map(track => ({
-              ...track,
-              creator: { id: creator.id, name: creator.name },
-              sectionTitle: subscription.section.title
-            }));
-            await chrome.runtime.sendMessage({
-              type: MESSAGE.cacheCommand,
-              command: "cacheTracks",
-              payload: {
-                tracks,
-                section: subscription.section,
-                format: state.settings.defaultFormat,
-                bitrate: state.settings.mp3Bitrate
-              },
-              target: "offscreen"
-            });
-            accepted = true;
-          }
+          // Persist work before advancing discovery; queue acceptance is not completion.
+          accepted = true;
         }
         subscriptionUpdates[key] = { subscription, patch: {
           lastCheckedAt: Date.now(),
@@ -312,8 +299,115 @@ async function checkCreators() {
     }
   }
   await updateStorageValue(STORAGE_KEYS.updateState, current => ({ ...(current ?? {}), ...results }));
-  await updateStorageValue(STORAGE_KEYS.subscriptions, current => mergeSubscriptionCheckResults(current, subscriptionUpdates));
+  await updateStorageValue(STORAGE_KEYS.subscriptions, async current => {
+    const { autoCacheJobs = {} } = await getAppState();
+    for (const [key, update] of Object.entries(subscriptionUpdates)) {
+      if (update.patch.lastError === null) {
+        update.patch.lastError = Object.values(autoCacheJobs).find(job => job.subscriptionKey === key
+          && autoCacheJobIsCurrent(job, current) && job.status === "failed")?.lastError ?? null;
+      }
+    }
+    return mergeSubscriptionCheckResults(current, subscriptionUpdates);
+  });
+  await dispatchAutoCacheJobs();
   return results;
+}
+
+async function applyAutoCacheOutcome(cache) {
+  const status = cache?.status ?? cache?.activity?.status;
+  if (!["completed", "skipped", "failed"].includes(status)) return;
+  const keys = cacheOutcomeKeys(cache);
+  if (!keys.length) return;
+  const state = await getAppState();
+  const updates = {};
+  await updateStorageValue(STORAGE_KEYS.autoCacheJobs, current => {
+    const next = { ...(current ?? {}) };
+    for (const key of keys) {
+      const job = next[key];
+      if (!job) continue;
+      const request = cache.autoCacheRequests?.find(item => item.key === key);
+      if (request && request.attemptId !== job.attemptId) continue;
+      if (cache.rootId && job.rootId && cache.rootId !== job.rootId) continue;
+      if (cache.outcomeId && cache.outcomeId === job.lastOutcomeId) continue;
+      if (autoCacheJobIsCurrent(job, state.subscriptions)) {
+        const lastError = status === "failed" ? cache.message || cache.activity?.message || "自动缓存失败，稍后重试" : null;
+        updates[job.subscriptionKey] = { subscription: job.subscription, patch: { lastError } };
+      }
+      if (status === "failed") next[key] = { ...failedAutoCacheJob(job, cache.message || cache.activity?.message), lastOutcomeId: cache.outcomeId };
+      else delete next[key];
+    }
+    for (const [subscriptionKey, update] of Object.entries(updates)) {
+      const remainingFailure = Object.values(next).find(job => job.subscriptionKey === subscriptionKey
+        && autoCacheJobIsCurrent(job, state.subscriptions) && job.status === "failed");
+      if (remainingFailure) update.patch.lastError = remainingFailure.lastError;
+    }
+    return next;
+  });
+  await updateStorageValue(STORAGE_KEYS.subscriptions, current => mergeSubscriptionCheckResults(current, updates));
+}
+
+function dispatchAutoCacheJobs() {
+  if (!dispatchingAutoCache) {
+    dispatchingAutoCache = dispatchPendingAutoCacheJobs().finally(() => { dispatchingAutoCache = null; });
+  }
+  return dispatchingAutoCache;
+}
+
+async function dispatchPendingAutoCacheJobs() {
+  const jobs = await updateStorageValue(STORAGE_KEYS.autoCacheJobs, async current => {
+    const { subscriptions } = await getAppState();
+    return Object.fromEntries(Object.entries(current ?? {}).filter(([, job]) => autoCacheJobIsCurrent(job, subscriptions)));
+  });
+  if (!Object.keys(jobs).length) return;
+  let snapshot;
+  try {
+    await ensureOffscreenDocument();
+    const response = await chrome.runtime.sendMessage({ type: MESSAGE.cacheCommand, command: "status", target: "offscreen" });
+    if (!response?.ok) throw new Error(response?.error || "无法读取自动缓存队列");
+    snapshot = response.data;
+  } catch (error) {
+    snapshot = { unavailable: toErrorMessage(error) };
+  }
+  // Reconcile retained terminal history after a worker restart or missed event.
+  for (const outcome of [...(snapshot?.recent ?? [])].reverse()) await applyAutoCacheOutcome(outcome);
+  const activeKeys = new Set([snapshot?.current, ...(snapshot?.pending ?? [])].flatMap(task => task?.autoCacheKeys ?? []));
+  for (const [key, initial] of Object.entries(jobs)) {
+    const latest = await getAppState();
+    const job = latest.autoCacheJobs?.[key];
+    if (!job || !autoCacheJobIsCurrent(job, latest.subscriptions) || activeKeys.has(key) || job.nextRetryAt > Date.now()) continue;
+    try {
+      if (snapshot?.unavailable) throw new Error(snapshot.unavailable);
+      if (snapshot?.directory?.permission !== "granted" || !snapshot.directory.rootId) throw new Error("缓存目录不可用，任务已保留待重试");
+      const attemptId = crypto.randomUUID();
+      await updateStorageValue(STORAGE_KEYS.autoCacheJobs, current => {
+        const next = { ...(current ?? {}) };
+        if (next[key]) next[key] = { ...next[key], status: "dispatching", attemptId, rootId: snapshot.directory.rootId, updatedAt: Date.now() };
+        return next;
+      });
+      // Re-read immediately before dispatch to respect disable/reconfigure during awaits.
+      const beforeSend = await getAppState();
+      if (!autoCacheJobIsCurrent(initial, beforeSend.subscriptions) || !beforeSend.autoCacheJobs?.[key]) continue;
+      const response = await chrome.runtime.sendMessage({
+        type: MESSAGE.cacheCommand, command: "cacheTracks", target: "offscreen",
+        payload: { tracks: [job.track], section: job.section, format: job.format, bitrate: job.bitrate,
+          rootId: snapshot.directory.rootId, autoCache: { key, attemptId } }
+      });
+      if (!response?.ok || response.data?.accepted !== true) throw new Error(response?.error || "自动缓存任务未被接收");
+      await updateStorageValue(STORAGE_KEYS.autoCacheJobs, current => {
+        const next = { ...(current ?? {}) };
+        // A terminal event can arrive before the command acknowledgement.
+        if (next[key]?.status === "dispatching") next[key] = { ...next[key], status: "queued", updatedAt: Date.now() };
+        return next;
+      });
+    } catch (error) {
+      const current = (await getAppState()).autoCacheJobs?.[key];
+      if (current && current.status !== "failed") {
+        await applyAutoCacheOutcome({ status: "failed", autoCacheKeys: [key], message: toErrorMessage(error) });
+      } else if (current && current.attemptId === job.attemptId) {
+        await applyAutoCacheOutcome({ status: "failed", autoCacheKeys: [key], message: toErrorMessage(error) });
+      }
+    }
+  }
 }
 
 async function setSubscription({ creatorId, section, enabled, mode = "download" }) {
@@ -353,7 +447,8 @@ async function setSubscription({ creatorId, section, enabled, mode = "download" 
       patch = { lastError: `建立追更基线失败，下次检查将重试：${toErrorMessage(error)}` };
     }
     subscriptions = await updateStorageValue(STORAGE_KEYS.subscriptions, current =>
-      mergeSubscriptionCheckResults(current, { [key]: { subscription, patch } })
+      current?.[key]?.baselinePending
+        ? mergeSubscriptionCheckResults(current, { [key]: { subscription, patch } }) : current
     );
   }
   return subscriptions;
@@ -476,6 +571,7 @@ async function handleMessage(message) {
       await ensureOffscreenDocument();
       return await chrome.runtime.sendMessage({ ...message, target: "offscreen" });
     case MESSAGE.cacheEvent:
+      await applyAutoCacheOutcome(message.cache);
       return { ok: true };
     case MESSAGE.playerEvent:
       if (message.persist !== false) await savePlayerEvent(message.player);

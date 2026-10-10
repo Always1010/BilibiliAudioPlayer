@@ -16,7 +16,7 @@ assert.deepEqual(pages, [[1, 50], [2, 50], [3, 50]], "初始基线必须分页�
 const queued = [];
 app.context.chrome.runtime.sendMessage = async message => {
   if (message.command === "cacheTracks") queued.push(...message.payload.tracks);
-  return { ok: true, data: { directory: { permission: "granted" } } };
+  return { ok: true, data: { accepted: true, directory: { permission: "granted", rootId: "test-root" } } };
 };
 const added = Array.from({ length: 12 }, (_, i) => ({ id: `new${i}` }));
 items.unshift(...added);
@@ -34,7 +34,7 @@ assert.equal(season.values.subscriptions["42:season:7"].lastSeenIds.length, 105)
 seasonItems.push({ id: "tail-new" });
 season.context.chrome.runtime.sendMessage = async message => {
   if (message.command === "cacheTracks") queued.push(...message.payload.tracks);
-  return { ok: true, data: { directory: { permission: "granted" } } };
+  return { ok: true, data: { accepted: true, directory: { permission: "granted", rootId: "test-root" } } };
 };
 await season.run("checkAllCreators()");
 assert.equal(queued.at(-1).id, "tail-new", "合集末页新增仍检测，且不依赖全部作品接口");

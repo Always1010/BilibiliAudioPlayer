@@ -5,6 +5,7 @@ export const STORAGE_KEYS = Object.freeze({
   settings: "settings",
   updateState: "updateState",
   subscriptions: "subscriptions",
+  autoCacheJobs: "autoCacheJobs",
   playlists: "playlists",
   favoriteSections: "favoriteSections",
   playbackProgress: "playbackProgress",

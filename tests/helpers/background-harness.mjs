@@ -3,6 +3,7 @@ import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { MESSAGE, STORAGE_KEYS, UPDATE_ALARM } from "../../shared/constants.js";
 import { loadSubscriptionVideos, mergeSubscriptionCheckResults, subscriptionIsCurrent } from "../../services/subscriptions.js";
+import { autoCacheJobIsCurrent, cacheOutcomeKeys, createAutoCacheJobs, failedAutoCacheJob } from "../../services/auto-cache-jobs.js";
 
 export async function backgroundHarness(values, overrides = {}) {
   const noopListener = { addListener() {} };
@@ -11,6 +12,7 @@ export async function backgroundHarness(values, overrides = {}) {
     console, crypto: webcrypto, setTimeout, clearTimeout,
     MESSAGE, STORAGE_KEYS, UPDATE_ALARM,
     loadSubscriptionVideos, mergeSubscriptionCheckResults, subscriptionIsCurrent,
+    autoCacheJobIsCurrent, cacheOutcomeKeys, createAutoCacheJobs, failedAutoCacheJob,
     getAppState: async () => structuredClone(values),
     toErrorMessage: error => error.message,
     updateStorageValue(key, updater) {
@@ -29,7 +31,7 @@ export async function backgroundHarness(values, overrides = {}) {
         onInstalled: noopListener, onStartup: noopListener, onMessage: noopListener,
         getURL: path => path,
         getContexts: async () => [{}],
-        sendMessage: async () => ({ ok: true, data: { directory: { permission: "granted" } } })
+        sendMessage: async () => ({ ok: true, data: { accepted: true, directory: { permission: "granted", rootId: "test-root" } } })
       },
       action: { onClicked: noopListener }, alarms: { onAlarm: noopListener },
       storage: { local: {
