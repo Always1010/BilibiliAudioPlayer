@@ -1877,13 +1877,16 @@ root.addEventListener("click", async event => {
     }
     else if (action === "play-track") {
       const section = findSection(button.dataset.sectionKey) ?? ui.activeSection;
+      const order = currentTrackSortDirection();
       let items = ui.view === "detail" ? ui.detailData?.items ?? [] : section.items ?? [];
-      if (["season", "series"].includes(section?.type) && items.length < Number(section.total)) {
+      const total = Number(ui.view === "detail" ? ui.detailData?.total ?? section.total : section.total) || items.length;
+      if (items.length < total) {
         items = await loadCompleteSection(section);
       }
-      const queue = queueForSection(section, items);
-      const index = Math.max(0, queue.findIndex(track => String(track.id) === String(button.dataset.trackId)));
-      await playerCommand("playQueue", { queue, index, queueContext: queueContextForSection(section) });
+      const queue = queueForSection(section, items, order);
+      const index = queue.findIndex(track => String(track.id) === String(button.dataset.trackId));
+      if (index < 0) throw new Error("所选作品已不在当前栏目，请刷新后重试");
+      await playerCommand("playQueue", { queue, index, queueContext: queueContextForSection(section, order) });
     }
     else if (action === "enqueue-track") {
       const section = findSection(button.dataset.sectionKey) ?? ui.activeSection;
