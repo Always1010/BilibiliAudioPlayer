@@ -19,6 +19,7 @@ import { encodeAudioBufferToMp3, normalizeMp3Bitrate } from "../services/mp3.js"
 import { addCacheHistory, summarizeCacheTask } from "../services/cache-queue-state.js";
 import { audioStreamCandidates, mediaErrorText, mediaSourceType } from "../services/audio-stream.js";
 import { cachedPlaybackSource, onlinePlaybackSource } from "../services/playback-source.js";
+import { abortablePlayback, throwIfPlaybackAborted, waitForPlaybackEvent } from "../services/playback-loading.js";
 import { normalizePlaybackRate } from "../services/playback-rate.js";
 import { normalizePlaybackVolume } from "../services/playback-volume.js";
 import { PLAYBACK_RESUME_END_THRESHOLD, playbackScopeKey } from "../services/playback-checkpoints.js";
@@ -44,6 +45,8 @@ let lastPersistedSecond = -1;
 let currentObjectUrl = null;
 let currentStreamAbort = null;
 let currentStreamPump = null;
+let activeLoad = null;
+let desiredPlaying = false;
 const cacheQueue = [];
 let cacheRunning = false;
 let currentCacheTask = null;
@@ -120,24 +123,20 @@ function disposeCurrentSource() {
   }
 }
 
-function waitForCanPlay(label) {
-  return new Promise((resolve, reject) => {
-    const ready = () => {
-      cleanup();
-      resolve();
-    };
-    const failed = () => {
-      const details = mediaErrorText(audio.error);
-      cleanup();
-      reject(new Error(`${label}失败：${details}`));
-    };
-    const cleanup = () => {
-      audio.removeEventListener("canplay", ready);
-      audio.removeEventListener("error", failed);
-    };
-    audio.addEventListener("canplay", ready, { once: true });
-    audio.addEventListener("error", failed, { once: true });
-  });
+function cancelPlaybackLoad() {
+  activeLoad?.controller.abort();
+  activeLoad = null;
+  disposeCurrentSource();
+}
+
+function assertCurrentLoad(load) {
+  throwIfPlaybackAborted(load.controller.signal);
+  if (activeLoad !== load) throw new DOMException("音频加载已中止", "AbortError");
+}
+
+function waitForCanPlay(label, load, signal) {
+  return waitForPlaybackEvent(audio, "canplay", signal,
+    () => new Error(`${label}失败：${mediaErrorText(audio.error)}`));
 }
 
 function resumeSeekError(label, details) {
@@ -146,7 +145,8 @@ function resumeSeekError(label, details) {
   return error;
 }
 
-async function seekToResumePosition(label, resumeAt) {
+async function seekToResumePosition(label, resumeAt, load, signal) {
+  assertCurrentLoad(load);
   if (!(resumeAt > 0)) return;
   const target = Math.min(resumeAt, Number.isFinite(audio.duration) ? audio.duration : resumeAt);
   try {
@@ -156,28 +156,19 @@ async function seekToResumePosition(label, resumeAt) {
   }
   if (Math.abs(audio.currentTime - target) <= 2 && !audio.seeking) return;
 
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => finish(resumeSeekError(label, "等待媒体定位超时")), 20000);
-    const seeked = () => finish();
-    const failed = () => finish(resumeSeekError(label, mediaErrorText(audio.error)));
-    const finish = error => {
-      clearTimeout(timeout);
-      audio.removeEventListener("seeked", seeked);
-      audio.removeEventListener("error", failed);
-      error ? reject(error) : resolve();
-    };
-    audio.addEventListener("seeked", seeked, { once: true });
-    audio.addEventListener("error", failed, { once: true });
-  });
+  await waitForPlaybackEvent(audio, "seeked", signal,
+    () => resumeSeekError(label, mediaErrorText(audio.error)));
+  assertCurrentLoad(load);
 
   if (Math.abs(audio.currentTime - target) > 2) {
     throw resumeSeekError(label, `实际位置为 ${Math.floor(audio.currentTime)} 秒，目标位置为 ${Math.floor(target)} 秒`);
   }
 }
 
-async function waitForAudioReady(label, resumeAt = 0) {
-  await waitForCanPlay(label);
-  await seekToResumePosition(label, resumeAt);
+async function waitForAudioReady(label, resumeAt = 0, load, signal = load.controller.signal) {
+  await waitForCanPlay(label, load, signal);
+  assertCurrentLoad(load);
+  await seekToResumePosition(label, resumeAt, load, signal);
 }
 
 async function fetchStreamResponse(stream, signal) {
@@ -242,7 +233,8 @@ async function waitForBufferSpace(sourceBuffer, signal) {
   }
 }
 
-function startMediaSourceStream(stream) {
+function startMediaSourceStream(stream, load) {
+  assertCurrentLoad(load);
   const type = mediaSourceType(stream);
   if (!type || !("MediaSource" in globalThis) || !MediaSource.isTypeSupported(type)) {
     throw new Error(`浏览器不支持流式解析 ${type || stream.mimeType || "该音频格式"}`);
@@ -252,14 +244,13 @@ function startMediaSourceStream(stream) {
   currentStreamAbort = controller;
   const mediaSource = new MediaSource();
   currentObjectUrl = URL.createObjectURL(mediaSource);
-  const opened = new Promise((resolve, reject) => {
-    mediaSource.addEventListener("sourceopen", resolve, { once: true });
-    mediaSource.addEventListener("error", () => reject(new Error("流式媒体容器初始化失败")), { once: true });
-  });
+  const opened = waitForPlaybackEvent(mediaSource, "sourceopen", controller.signal,
+    () => new Error("流式媒体容器初始化失败"));
   audio.src = currentObjectUrl;
   audio.load();
 
   const pump = opened.then(async () => {
+    assertCurrentLoad(load);
     const sourceBuffer = mediaSource.addSourceBuffer(type);
     const response = await fetchStreamResponse(stream, controller.signal);
     const reader = response.body.getReader();
@@ -275,12 +266,13 @@ function startMediaSourceStream(stream) {
   return { pump, controller };
 }
 
-async function loadRemoteAudio(track, resumeAt) {
-  const stream = await sendToBackground({ type: MESSAGE.resolveAudio, track });
+async function loadRemoteAudio(track, resumeAt, load) {
+  const stream = await abortablePlayback(sendToBackground({ type: MESSAGE.resolveAudio, track }), load.controller.signal);
+  assertCurrentLoad(load);
   let streamError = null;
   try {
-    const session = startMediaSourceStream(stream);
-    const ready = waitForAudioReady("DASH 流式加载", resumeAt);
+    const session = startMediaSourceStream(stream, load);
+    const ready = waitForAudioReady("DASH 流式加载", resumeAt, load, session.controller.signal);
     await Promise.race([ready, session.pump.then(() => ready)]);
     session.pump.catch(error => {
       if (!session.controller.signal.aborted && currentStreamPump === session.pump) {
@@ -289,6 +281,7 @@ async function loadRemoteAudio(track, resumeAt) {
     });
     return;
   } catch (error) {
+    assertCurrentLoad(load);
     streamError = error;
     disposeCurrentSource();
   }
@@ -298,11 +291,12 @@ async function loadRemoteAudio(track, resumeAt) {
   try {
     const response = await fetchStreamResponse(stream, controller.signal);
     const blob = await response.blob();
+    assertCurrentLoad(load);
     if (!blob.size) throw new Error("CDN 返回了空音频文件");
     currentObjectUrl = URL.createObjectURL(new Blob([blob], { type: stream.mimeType || blob.type }));
     audio.src = currentObjectUrl;
     audio.load();
-    await waitForAudioReady("完整音频回退加载", resumeAt);
+    await waitForAudioReady("完整音频回退加载", resumeAt, load, controller.signal);
   } catch (error) {
     throw new Error(`在线播放失败：${streamError?.message || "流式加载不可用"}；回退加载失败：${error.message}`);
   }
@@ -310,44 +304,65 @@ async function loadRemoteAudio(track, resumeAt) {
 
 async function loadAndPlay(index, resumeAt = 0) {
   if (!state.queue.length) throw new Error("播放队列为空");
+  cancelPlaybackLoad();
+  const load = { controller: new AbortController() };
+  activeLoad = load;
+  desiredPlaying = true;
   const normalizedIndex = Math.max(0, Math.min(index, state.queue.length - 1));
   const track = state.queue[normalizedIndex];
-  disposeCurrentSource();
+  const preferredScopeKey = scopeKeyFromContext(state.queueContext);
   state.queueIndex = normalizedIndex;
   state.currentTrack = track;
   state.currentTime = Math.max(0, Number(resumeAt) || 0);
   state.duration = Math.max(0, Number(track.duration) || 0);
-  await report({ loading: true, source: null, currentTrack: track, queueIndex: normalizedIndex }, true);
-
-  const cachedRecord = await getCacheRecord(track.id);
-  const cachedFiles = cachedRecord
-    ? await findCachedFiles(cachedRecord, { preferredScopeKey: scopeKeyFromContext(state.queueContext) })
-    : [];
-  let source = null;
-  for (const cached of cachedFiles) {
-    try {
-      currentObjectUrl = URL.createObjectURL(cached.file);
-      audio.src = currentObjectUrl;
-      audio.load();
-      await waitForAudioReady("本地缓存加载", resumeAt);
-      source = cachedPlaybackSource(cached.location);
-      break;
-    } catch (error) {
-      disposeCurrentSource();
-      if (error?.code === "RESUME_SEEK_FAILED") throw error;
-      await deleteCacheLocation(cachedRecord.trackId, cached.location.id);
+  try {
+    await report({ loading: true, source: null, currentTrack: track, queueIndex: normalizedIndex }, true);
+    assertCurrentLoad(load);
+    const cachedRecord = await abortablePlayback(getCacheRecord(track.id), load.controller.signal);
+    const cachedFiles = cachedRecord
+      ? await abortablePlayback(findCachedFiles(cachedRecord, { preferredScopeKey }), load.controller.signal)
+      : [];
+    assertCurrentLoad(load);
+    let source = null;
+    for (const cached of cachedFiles) {
+      try {
+        assertCurrentLoad(load);
+        currentObjectUrl = URL.createObjectURL(cached.file);
+        audio.src = currentObjectUrl;
+        audio.load();
+        await waitForAudioReady("本地缓存加载", resumeAt, load);
+        source = cachedPlaybackSource(cached.location);
+        break;
+      } catch (error) {
+        assertCurrentLoad(load);
+        disposeCurrentSource();
+        if (error?.code === "RESUME_SEEK_FAILED") throw error;
+        await deleteCacheLocation(cachedRecord.trackId, cached.location.id);
+      }
     }
+    if (!source) {
+      await loadRemoteAudio(track, resumeAt, load);
+      source = onlinePlaybackSource();
+    }
+    assertCurrentLoad(load);
+    applyVolume(state.volume);
+    updateMediaSession(track);
+    if (desiredPlaying) {
+      await ensureAudioContextRunning();
+      assertCurrentLoad(load);
+      if (desiredPlaying) {
+        await audio.play();
+        assertCurrentLoad(load);
+        if (!desiredPlaying) audio.pause();
+      }
+    }
+    await report({ loading: false, source });
+  } catch (error) {
+    if (activeLoad !== load || load.controller.signal.aborted) return;
+    disposeCurrentSource();
+    await report({ error: error.message, loading: false });
+    throw error;
   }
-  if (!source) {
-    await loadRemoteAudio(track, resumeAt);
-    source = onlinePlaybackSource();
-  }
-
-  applyVolume(state.volume);
-  updateMediaSession(track);
-  await ensureAudioContextRunning();
-  await audio.play();
-  await report({ loading: false, source });
 }
 
 function cacheSnapshot(patch = {}) {
@@ -802,7 +817,8 @@ async function handleCommand(command, payload = {}) {
       state.queue = removed.queue;
       state.queueIndex = removed.currentIndex;
       if (!state.queue.length) {
-        disposeCurrentSource();
+        cancelPlaybackLoad();
+        desiredPlaying = false;
         state.currentTrack = null;
         state.currentTime = 0;
         state.duration = 0;
@@ -817,7 +833,8 @@ async function handleCommand(command, payload = {}) {
       break;
     }
     case "clearQueue":
-      disposeCurrentSource();
+      cancelPlaybackLoad();
+      desiredPlaying = false;
       state.queue = [];
       state.queueIndex = -1;
       state.queueContext = null;
@@ -829,6 +846,8 @@ async function handleCommand(command, payload = {}) {
       includeQueue = true;
       break;
     case "resume":
+      desiredPlaying = true;
+      if (state.loading) break;
       if (!audio.src && state.currentTrack) {
         const duration = Math.max(0, Number(state.duration) || Number(state.currentTrack.duration) || 0);
         const nearEnd = duration > 0 && duration - Number(state.currentTime) <= PLAYBACK_RESUME_END_THRESHOLD;
@@ -838,11 +857,14 @@ async function handleCommand(command, payload = {}) {
         await loadAndPlay(nextIndex, nearEnd ? 0 : state.currentTime);
       }
       else {
+        const load = activeLoad;
         await ensureAudioContextRunning();
-        await audio.play();
+        if (desiredPlaying && activeLoad === load && !state.loading) await audio.play();
+        if (!desiredPlaying && activeLoad === load) audio.pause();
       }
       break;
     case "pause":
+      desiredPlaying = false;
       audio.pause();
       break;
     case "next":
@@ -916,7 +938,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handler
     .then(data => sendResponse({ ok: true, data }))
     .catch(error => {
-      if (message.type === MESSAGE.playerCommand) report({ error: error.message, loading: false }).catch(console.error);
       sendResponse({ ok: false, error: error.message });
     });
   return true;

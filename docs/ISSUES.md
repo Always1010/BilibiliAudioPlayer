@@ -685,3 +685,13 @@
 - 解决方案：缓存位置新增与移除在单个 readwrite 事务中执行读取、合并及写回，事务内部不等待网络或文件 I/O；存储操作统一等待事务 oncomplete 并处理 error、abort。
 - 验证方式：索引事务、目录及缓存记录测试通过，覆盖并发新增两位置、删除与新增交叉、提交失败必须拒绝并回滚；文件存储 JavaScript 语法及 git diff --check 通过。
 - 相关文件：`services/file-store.js`、`tests/helpers/indexeddb.mjs`、`tests/file-store-transactions.test.mjs`、`docs/ISSUES.md`
+
+## ISSUE-056：过期音源请求在切歌或清空后重新启动播放
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：快速切歌时显示作品与实际音源不一致；清空队列后旧请求返回仍出声，加载期间暂停也会被后续播放覆盖。
+- 原因：异步加载没有会话身份，媒体等待不可取消；旧请求仍可修改共享音频元素或清理新的音源。
+- 解决方案：每次加载创建可取消会话，在异步边界后验证身份，切歌与清空取消旧会话；媒体就绪、定位和容器初始化等待可取消且有超时。独立记录用户最新播放意图，旧会话不能报告错误或清理新音源，加载完成遵循暂停状态。
+- 验证方式：执行真实离屏函数的受控时序回归通过，覆盖音源反序返回、加载中暂停、清空队列和媒体事件等待取消；相关 JavaScript 语法及 git diff --check 通过。
+- 相关文件：`offscreen/offscreen.js`、`services/playback-loading.js`、`tests/playback-loading.test.mjs`、`docs/ISSUES.md`
