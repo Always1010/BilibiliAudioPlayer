@@ -231,12 +231,12 @@ export async function requireWritableDirectory() {
 
 export async function putCacheRecord(record) {
   return withDirectoryLock("shared", async () => {
-  const rootId = (await loadDirectoryState())?.rootId;
-  if (!rootId) throw new Error("请先选择缓存目录");
-  if (record.rootId && record.rootId !== rootId) throw new Error("缓存目录已改变，请重新执行缓存任务");
-  const incoming = { ...record, rootId };
-  if (Array.isArray(record.locations)) incoming.locations = record.locations.map(location => ({ ...location, rootId }));
-  return updateCacheRecord(rootId, record.trackId, current => mergeCacheLocation(current, incoming));
+    const rootId = (await loadDirectoryState())?.rootId;
+    if (!rootId) throw new Error("请先选择缓存目录");
+    if (record.rootId && record.rootId !== rootId) throw new Error("缓存目录已改变，请重新执行缓存任务");
+    const incoming = { ...record, rootId };
+    if (Array.isArray(record.locations)) incoming.locations = record.locations.map(location => ({ ...location, rootId }));
+    return updateCacheRecord(rootId, record.trackId, current => mergeCacheLocation(current, incoming));
   });
 }
 
@@ -381,10 +381,27 @@ export async function findCachedFiles(record, options = {}) {
 }
 
 async function findCachedFilesInDirectory(record, options, selected) {
+  const found = [];
+  // Preserve the array API used by playback/download while offering callers
+  // recoverable diagnostics. Failed access is not evidence of an invalid file.
+  Object.defineProperty(found, "accessErrors", { value: [] });
   const root = selected?.handle;
-  if (!root || await root.queryPermission({ mode: "read" }) !== "granted") return [];
+  if (!root) return found;
   const normalized = normalizeCacheRecord(record);
-  if (!normalized || !normalized.rootId || normalized.rootId !== selected.rootId) return [];
+  if (!normalized || !normalized.rootId || normalized.rootId !== selected.rootId) return found;
+  const accessError = (error, location = null) => found.accessErrors.push({
+    trackId: normalized.trackId, rootId: selected.rootId, location,
+    name: error?.name || "Error", message: error?.message || "暂时无法读取缓存文件", recoverable: true
+  });
+  try {
+    if (await root.queryPermission({ mode: "read" }) !== "granted") {
+      accessError({ name: "NotAllowedError", message: "缓存目录读取权限已失效，请重新授权" });
+      return found;
+    }
+  } catch (error) {
+    accessError(error);
+    return found;
+  }
   const preferredScopeKey = String(options.preferredScopeKey ?? "");
   const locations = orderedCacheLocations(normalized, preferredScopeKey).filter(location =>
     location.rootId === selected.rootId && locationMatches(location, {
@@ -393,15 +410,18 @@ async function findCachedFilesInDirectory(record, options, selected) {
       bitrate: options.bitrate
     })
   );
-  const found = [];
   for (const location of locations) {
+    let file;
     try {
-      const file = await fileAtPath(root, location.path);
-      if (file.size) found.push({ file, location });
-      else await deleteCacheLocation(normalized.trackId, location.id);
-    } catch {
-      await deleteCacheLocation(normalized.trackId, location.id);
+      file = await fileAtPath(root, location.path);
+    } catch (error) {
+      if (isNotFoundError(error)) await deleteCacheLocation(normalized.trackId, location.id, selected.rootId);
+      else accessError(error, location);
+      continue;
     }
+    if (file.size > 0) found.push({ file, location });
+    else if (file.size === 0) await deleteCacheLocation(normalized.trackId, location.id, selected.rootId);
+    else accessError({ name: "NotReadableError", message: "缓存文件大小暂时不可读" }, location);
   }
   return found;
 }
