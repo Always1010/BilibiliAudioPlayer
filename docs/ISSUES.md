@@ -767,3 +767,13 @@
 - 相关文件：services/file-store.js、services/cache-records.js、services/cache-library.js、offscreen/offscreen.js、ui/app.js、docs/CACHE.md、tests/cache-root.test.mjs、tests/ui-cache-root.test.mjs 及对应测试辅助文件。
 
 - ISSUE-056 补充验证（2026-10-10）：媒体流读取返回、SourceBuffer 追加与缓冲等待均检查取消信号，已取消任务立即终止；恢复定位超时保留 RESUME_SEEK_FAILED 类型，避免误删仍可使用的本地缓存。播放加载与倍速回归测试通过。
+
+### ISSUE-064 作品行暂停按钮重新建立播放队列
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：正在播放的作品行显示暂停图标，点击后却从头重新播放；悬浮与无障碍说明没有同步动作。
+- 原因：图标随播放器状态变化，事件处理始终执行 playQueue。
+- 解决方案：当前作品依据播放状态发送 pause 或 resume，其他作品按完整栏目队列切歌；图标、悬浮说明及 aria-label 表达相同动作。
+- 验证方式：真实 UI 测试确认暂停与恢复保留原 83 秒位置和队列，其他作品正确切换；播放标记、多栏目同 BV 与标签同步测试通过。
+- 相关文件：ui/app.js、ui/track-playback.js、tests/track-playback.test.mjs、tests/ui-track-actions.test.mjs。

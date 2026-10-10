@@ -5,11 +5,14 @@ function trackRow(trackId, trackNumber) {
   const classes = new Set();
   const index = { textContent: trackNumber };
   const icon = { textContent: "▶" };
+  const attributes = {};
+  const button = { setAttribute: (name, value) => { attributes[name] = value; }, querySelector: () => icon };
   return {
-    dataset: { trackId, trackNumber },
+    dataset: { trackId, trackNumber, trackTitle: `${trackId}作品` },
     classList: { toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name) },
-    querySelector: selector => selector === ".track-index" ? index : icon,
-    snapshot: () => [classes.has("playing"), index.textContent, icon.textContent]
+    querySelector: selector => selector === ".track-index" ? index : button,
+    snapshot: () => [classes.has("playing"), index.textContent, icon.textContent],
+    label: () => attributes
   };
 }
 
@@ -25,6 +28,8 @@ const snapshots = () => rows.map(row => row.snapshot());
 
 updateTrackPlayback(scope, { currentTrack: { id: "BV15" }, playing: true });
 assert.deepEqual(snapshots(), [[false, "10", "▶"], [true, "♫", "Ⅱ"], [false, "02", "▶"]]);
+assert.deepEqual(rows[1].label(), { "aria-label": "暂停 BV15作品", title: "暂停 BV15作品" });
+assert.equal(rows[0].label().title, "播放 BV10作品");
 
 // 第 15 首切换为第 10 首：旧行恢复序号，新行同步高亮和图标。
 updateTrackPlayback(scope, { currentTrack: { id: "BV10" }, playing: true });
@@ -32,6 +37,7 @@ assert.deepEqual(snapshots(), [[true, "♫", "Ⅱ"], [false, "15", "▶"], [true
 
 updateTrackPlayback(scope, { currentTrack: { id: "BV10" }, playing: false });
 assert.deepEqual(snapshots(), [[true, "10", "▶"], [false, "15", "▶"], [true, "02", "▶"]]);
+assert.deepEqual(rows[0].label(), { "aria-label": "继续播放 BV10作品", title: "继续播放 BV10作品" });
 updateTrackPlayback(scope, { currentTrack: { id: "BV10" }, playing: true });
 assert.deepEqual(snapshots(), [[true, "♫", "Ⅱ"], [false, "15", "▶"], [true, "♫", "Ⅱ"]]);
 

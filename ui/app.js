@@ -270,7 +270,7 @@ function trackRows(items, section, limit = null) {
   const visibleItems = sortTracksByPublishedAt(items, currentTrackSortDirection());
   const visible = limit ? visibleItems.slice(0, limit) : visibleItems;
   const cached = new Set((ui.cacheInfo?.records ?? []).map(record => String(record.trackId)));
-  return visible.map((track, index) => `<div class="track-row" data-track-id="${escapeHtml(track.id)}" data-track-number="${String(index + 1).padStart(2, "0")}">
+  return visible.map((track, index) => `<div class="track-row" data-track-id="${escapeHtml(track.id)}" data-track-title="${escapeHtml(track.title)}" data-track-number="${String(index + 1).padStart(2, "0")}">
     <span class="track-index">${String(index + 1).padStart(2, "0")}</span>
     <div><div class="track-title">${escapeHtml(track.title)}</div><div class="track-subtitle">${track.bvid ? escapeHtml(track.bvid) : "视频作品"}${track.publishedAt ? ` · ${formatDate(track.publishedAt)}` : ""}</div></div>
     <span class="track-duration">${formatDuration(track.duration)}</span>
@@ -1876,6 +1876,11 @@ root.addEventListener("click", async event => {
       render();
     }
     else if (action === "play-track") {
+      const player = ui.app.player;
+      if (player.currentTrack?.id != null && String(player.currentTrack.id) === String(button.dataset.trackId)) {
+        await playerCommand(player.playing ? "pause" : "resume");
+        return;
+      }
       const section = findSection(button.dataset.sectionKey) ?? ui.activeSection;
       const order = currentTrackSortDirection();
       let items = ui.view === "detail" ? ui.detailData?.items ?? [] : section.items ?? [];

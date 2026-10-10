@@ -9,7 +9,12 @@ export function updateTrackPlayback(scope, player = {}) {
     const indexText = playing ? "♫" : row.dataset.trackNumber;
     if (index && index.textContent !== indexText) index.textContent = indexText;
 
-    const icon = row.querySelector('[data-action="play-track"] .symbol');
+    const button = row.querySelector('[data-action="play-track"]');
+    const title = row.dataset.trackTitle || "当前作品";
+    const label = `${current ? playing ? "暂停" : "继续播放" : "播放"} ${title}`;
+    button?.setAttribute("aria-label", label);
+    button?.setAttribute("title", label);
+    const icon = button?.querySelector(".symbol");
     const iconText = playing ? "Ⅱ" : "▶";
     if (icon && icon.textContent !== iconText) icon.textContent = iconText;
   });
