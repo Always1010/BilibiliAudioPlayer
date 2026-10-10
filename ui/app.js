@@ -1215,11 +1215,14 @@ async function playPlaylistFromCheckpoint(playlist) {
 async function playerCommand(command, payload = {}) {
   // 尚在分页构建的队列也属于播放请求；更新用户意图立即使它失效。
   if (playbackIntentCommands.has(command)) playbackRequest += 1;
+  const request = playbackRequest;
   try {
     const player = await send(MESSAGE.playerCommand, { command, payload });
+    if (request !== playbackRequest) return;
     applyPlayerState(player);
     renderPlayer();
   } catch (error) {
+    if (request !== playbackRequest) return;
     ui.app.player = { ...ui.app.player, error: toErrorMessage(error), loading: false };
     renderPlayer();
   }

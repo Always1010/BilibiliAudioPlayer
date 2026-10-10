@@ -698,6 +698,8 @@
 
 - 补充修复与验证：媒体流读取返回、SourceBuffer 追加与缓冲等待均检查取消信号；恢复定位超时保留 RESUME_SEEK_FAILED 类型，避免误删可用本地缓存。UI 完整分页建立队列也检查播放意图代次，暂停、恢复、切歌、清空、移除及新的播放请求使旧分页意图失效；8 种控制入口与普通浏览分页回归通过。补充文件：ui/app.js、tests/ui-playback-intent.test.mjs、tests/helpers/offscreen.mjs。
 
+- 跨层补充修复与验证：后台离屏查询与状态恢复的异步预处理按命令接收顺序执行，转发后不等待音源加载响应，后续清空可及时取消旧加载；UI 命令返回及错误校验播放代次，清空后的旧 pause、倍速、音量快照及 next 错误不能复活旧队列或覆盖当前状态。真实后台预处理阻塞与真实 UI 反序响应测试通过。补充文件：background/service-worker.js、tests/player-command-order.test.mjs、ui/app.js、tests/ui-playback-intent.test.mjs。
+
 ## ISSUE-068：追更检查用旧快照恢复已关闭订阅
 
 - 日期：2026-10-10
