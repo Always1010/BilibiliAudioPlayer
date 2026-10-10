@@ -38,10 +38,12 @@ import {
   removeFavoriteSection
 } from "../services/favorite-sections.js";
 import { actionLaunchConfiguration } from "../services/action-launch.js";
+import { mergeSubscriptionCheckResults, subscriptionIsCurrent } from "../services/subscriptions.js";
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 let creatingOffscreen = null;
 let playerSaveChain = Promise.resolve();
+let checkingCreators = null;
 
 async function configureExtension() {
   await Promise.all([
@@ -229,10 +231,17 @@ async function loadSection({ creatorId, section, page = 1, pageSize = 30 }) {
   return listContainerVideos(creatorId, section.type, section.id, page, pageSize);
 }
 
-async function checkAllCreators() {
+function checkAllCreators() {
+  if (!checkingCreators) {
+    checkingCreators = checkCreators().finally(() => { checkingCreators = null; });
+  }
+  return checkingCreators;
+}
+
+async function checkCreators() {
   const state = await getAppState();
   const results = {};
-  const nextSubscriptions = { ...state.subscriptions };
+  const subscriptionUpdates = {};
   for (const creator of state.creators) {
     try {
       const latest = await listCreatorVideos(creator.id, 1, 10);
@@ -262,6 +271,7 @@ async function checkAllCreators() {
               target: "offscreen"
             });
             if (status?.ok && status.data?.directory?.permission === "granted") {
+              if (!subscriptionIsCurrent((await getAppState()).subscriptions[key], subscription)) continue;
               const tracks = newItems.map(track => ({
                 ...track,
                 creator: { id: creator.id, name: creator.name },
@@ -281,14 +291,13 @@ async function checkAllCreators() {
               accepted = true;
             }
           }
-          nextSubscriptions[key] = {
-            ...subscription,
+          subscriptionUpdates[key] = { subscription, patch: {
             lastCheckedAt: Date.now(),
             lastError: accepted ? null : "缓存目录不可用，新作品已保留待下次检查",
             lastSeenIds: accepted ? listing.items.map(item => String(item.id)) : subscription.lastSeenIds
-          };
+          } };
         } catch (error) {
-          nextSubscriptions[key] = { ...subscription, lastCheckedAt: Date.now(), lastError: toErrorMessage(error) };
+          subscriptionUpdates[key] = { subscription, patch: { lastCheckedAt: Date.now(), lastError: toErrorMessage(error) } };
         }
       }
     } catch (error) {
@@ -299,10 +308,8 @@ async function checkAllCreators() {
       };
     }
   }
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.updateState]: results,
-    [STORAGE_KEYS.subscriptions]: nextSubscriptions
-  });
+  await updateStorageValue(STORAGE_KEYS.updateState, current => ({ ...(current ?? {}), ...results }));
+  await updateStorageValue(STORAGE_KEYS.subscriptions, current => mergeSubscriptionCheckResults(current, subscriptionUpdates));
   return results;
 }
 
@@ -321,6 +328,7 @@ async function setSubscription({ creatorId, section, enabled, mode = "download",
           title: section.title
         },
         enabled: true,
+        revision: crypto.randomUUID(),
         mode,
         lastSeenIds: lastSeenIds.map(String),
         createdAt: next[key]?.createdAt ?? Date.now(),
