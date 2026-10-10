@@ -715,3 +715,13 @@
 - 解决方案：期望倍速独立保存在播放器状态，设置时同步 defaultPlaybackRate 与 playbackRate，并在音源就绪后重新应用。状态上报使用期望倍速，不用加载过程中的瞬时值覆盖偏好。
 - 验证方式：倍速和播放加载回归通过，模拟 load 重置及 ratechange，覆盖 hydrate、加载期间修改倍速和切歌后保持；相关语法及 git diff --check 通过。
 - 相关文件：`offscreen/offscreen.js`、`tests/playback-rate.test.mjs`、`tests/playback-loading.test.mjs`、`tests/helpers/offscreen.mjs`、`docs/ISSUES.md`
+
+## ISSUE-059：过期页面请求覆盖当前内容与操作归属
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：快速切换 UP 主、栏目或搜索时，旧响应和错误倒灌当前页面；等待分页后的播放或缓存可能使用新选中 UP 主、栏目或格式。后台读取资料还可能重新选择或恢复已移除的关注。
+- 原因：共享 UI 状态没有请求代次，异步操作结束后重新读取当前选择；资料读取复用带选择副作用的添加函数。
+- 解决方案：导航、UP 主、搜索和详情各自维护代次，过期响应、进度、错误及 finally 不修改当前状态。栏目绑定所属 UP 主，异步操作提前捕获栏目、排序与缓存格式；离页后取消待建播放队列。后台资料读取只更新仍关注对象，不修改选择或恢复已移除关注。
+- 验证方式：真实 UI 与后台函数的受控时序测试通过，覆盖 UP/栏目反序响应、旧搜索/分页错误、缓存中切换 UP 与格式、离页取消播放、后台读取资料保持选择及不复活关注；相关语法与 git diff --check 通过。
+- 相关文件：`ui/app.js`、`background/service-worker.js`、`tests/ui-async-context.test.mjs`、`tests/creator-loading.test.mjs`、`docs/ISSUES.md`

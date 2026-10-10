@@ -34,6 +34,34 @@ let draggedRow = null;
 let cacheToastTimer = null;
 let renderedPlayerKey = "";
 let favoriteMetadataRequest = null;
+let pageGeneration = 0;
+let creatorRequest = 0;
+let searchRequest = 0;
+let detailRequest = 0;
+
+function supersededRequest() {
+  return Object.assign(new Error("页面请求已被新的操作取代"), { code: "STALE_UI_REQUEST" });
+}
+
+function detailRequestScope(section, request = ++detailRequest) {
+  const generation = pageGeneration;
+  const creatorId = String(creatorForSection(section)?.id ?? "");
+  const view = ui.view;
+  const activeId = String(activeCreator()?.id ?? "");
+  const current = () => generation === pageGeneration && request === detailRequest
+    && String(activeCreator()?.id ?? "") === activeId
+    && (ui.view === view || (view !== "detail" && ui.view === "detail"))
+    && (ui.view !== "detail" || (ui.activeSection?.key === section?.key
+      && String(creatorForSection(ui.activeSection)?.id ?? "") === creatorId));
+  return {
+    current,
+    assertCurrent() { if (!current()) throw supersededRequest(); }
+  };
+}
+
+function sectionWithCreator(section) {
+  return { ...section, creator: creatorForSection(section) };
+}
 
 const ui = {
   app: null,
@@ -263,7 +291,7 @@ function normalizedSections() {
   };
   const seasons = (ui.activeContent.containers?.seasons ?? []).map(item => ({ ...item, key: `season:${item.id}`, items: item.preview ?? [] }));
   const series = (ui.activeContent.containers?.series ?? []).map(item => ({ ...item, key: `series:${item.id}`, items: item.preview ?? [] }));
-  return [all, ...seasons, ...series];
+  return [all, ...seasons, ...series].map(sectionWithCreator);
 }
 
 function findSection(key) {
@@ -860,7 +888,11 @@ function searchQueueContext() {
 }
 
 async function loadActiveCreator(force = false) {
+  const request = ++creatorRequest;
+  const generation = pageGeneration;
   const creator = activeCreator();
+  const current = () => request === creatorRequest && generation === pageGeneration
+    && ui.view === "creator" && String(activeCreator()?.id) === String(creator?.id);
   if (!creator) {
     ui.activeContent = null;
     render();
@@ -872,17 +904,20 @@ async function loadActiveCreator(force = false) {
   render();
   try {
     const content = await send(MESSAGE.loadCreator, { id: creator.id, force });
+    if (!current()) return;
     ui.activeContent = content;
     ui.app.creatorContent[creator.id] = content;
   } catch (error) {
-    ui.error = toErrorMessage(error);
+    if (current()) ui.error = toErrorMessage(error);
   } finally {
-    ui.loading = false;
-    render();
+    if (current()) { ui.loading = false; render(); }
   }
 }
 
 async function search(keyword) {
+  const request = ++searchRequest;
+  const generation = pageGeneration;
+  const current = () => request === searchRequest && generation === pageGeneration;
   ui.searchKeyword = keyword.trim();
   if (!ui.searchKeyword) {
     ui.searchResults = [];
@@ -897,13 +932,14 @@ async function search(keyword) {
   ui.error = "";
   render();
   try {
-    ui.searchResults = await send(MESSAGE.searchCreators, { keyword: ui.searchKeyword, page: 1 });
+    const results = await send(MESSAGE.searchCreators, { keyword: ui.searchKeyword, page: 1 });
+    if (current()) ui.searchResults = results;
   } catch (error) {
+    if (!current()) return;
     ui.error = toErrorMessage(error);
     ui.notice = "名称搜索受到站点风控时，可以改用 UP 主数字 UID 精确添加。";
   } finally {
-    ui.searching = false;
-    render();
+    if (current()) { ui.searching = false; render(); }
   }
 }
 
@@ -915,14 +951,18 @@ async function openSection(key) {
 }
 
 async function openFavoriteSection(key) {
+  const generation = pageGeneration;
   const favorite = (ui.app?.favoriteSections ?? []).find(item => item.key === key);
   if (!favorite) throw new Error("收藏的栏目不存在");
   ui.detailOrigin = "favorites";
   await refreshFavoriteSectionMetadata();
+  if (generation !== pageGeneration) throw supersededRequest();
   await openSectionDetail(favoriteSectionToSection(favorite));
 }
 
 async function openSectionDetail(section) {
+  section = sectionWithCreator(section);
+  const scope = detailRequestScope(section);
   const creator = creatorForSection(section);
   if (!creator) throw new Error("未找到栏目的所属 UP 主");
   ui.activeSection = section;
@@ -947,79 +987,76 @@ async function openSectionDetail(section) {
         {
           pageSize,
           onProgress: ({ items, total }) => {
+            scope.assertCurrent();
             ui.notice = `正在读取“${section.title}”：${Math.min(items.length, total)} / ${total}`;
             render();
           }
         }
       );
+      scope.assertCurrent();
       ui.detailData = { ...result, pageSize };
       ui.detailPage = result.page;
       ui.notice = "";
     } else {
-      ui.detailData = await send(MESSAGE.loadSection, {
+      const listing = await send(MESSAGE.loadSection, {
         creatorId: creator.id,
         section: { id: section.id, type: section.type },
         page: 1,
         pageSize
       });
+      scope.assertCurrent();
+      ui.detailData = listing;
     }
   } catch (error) {
-    ui.error = toErrorMessage(error);
+    if (scope.current()) ui.error = toErrorMessage(error);
   } finally {
-    ui.loading = false;
-    render();
+    if (scope.current()) { ui.loading = false; render(); }
   }
 }
 
 async function searchDetailTracks(keyword) {
-  const section = ui.activeSection;
-  if (!section) return;
+  const section = sectionWithCreator(ui.activeSection);
+  if (!ui.activeSection) return;
+  const scope = detailRequestScope(section);
   ui.trackSearchKeyword = String(keyword).trim();
   ui.error = "";
-  if (!ui.trackSearchKeyword) {
+  const items = ui.detailData?.items ?? section.items ?? [];
+  const total = Number(ui.detailData?.total ?? section.total) || items.length;
+  if (!ui.trackSearchKeyword || items.length >= total) {
+    ui.loading = false;
     render();
     return;
   }
-
-  let items = ui.detailData?.items ?? section.items ?? [];
-  let total = Number(ui.detailData?.total ?? section.total) || items.length;
-  if (items.length >= total) {
-    render();
-    return;
-  }
-
   ui.loading = true;
   render();
   try {
     const pageSize = section.type === "all" ? 50 : 100;
-    let nextPage = ui.detailPage + 1;
-    while (items.length < total) {
+    const result = await loadAllSectionPages(async (page, size) => {
+      scope.assertCurrent();
       const listing = await send(MESSAGE.loadSection, {
-        creatorId: creatorForSection(section)?.id,
+        creatorId: section.creator?.id,
         section: { id: section.id, type: section.type },
-        page: nextPage,
-        pageSize
+        page, pageSize: size
       });
-      total = Number(listing.total) || total;
-      const known = new Set(items.map(item => String(item.id)));
-      const additions = listing.items.filter(item => !known.has(String(item.id)));
-      items = [...items, ...additions];
-      ui.detailData = { ...listing, items, total };
-      ui.detailPage = nextPage;
-      if (!listing.items.length || additions.length === 0 || listing.items.length < pageSize) break;
-      nextPage += 1;
-    }
+      scope.assertCurrent();
+      return listing;
+    }, { pageSize });
+    scope.assertCurrent();
+    ui.detailData = { ...result, pageSize };
+    ui.detailPage = result.page;
   } catch (error) {
-    ui.error = `搜索剩余作品时出错：${toErrorMessage(error)}`;
+    if (scope.current()) ui.error = `搜索剩余作品时出错：${toErrorMessage(error)}`;
   } finally {
-    ui.loading = false;
-    render();
+    if (scope.current()) { ui.loading = false; render(); }
   }
 }
 
 async function loadMoreDetail() {
-  const section = ui.activeSection;
-  if (!section) return;
+  if (!ui.activeSection) return;
+  const section = sectionWithCreator(ui.activeSection);
+  const scope = detailRequestScope(section);
+  const existing = ui.detailData?.items ?? [];
+  const nextPage = ui.detailPage + 1;
   ui.loading = true;
   render();
   try {
@@ -1027,26 +1064,31 @@ async function loadMoreDetail() {
       const creator = creatorForSection(section);
       const pageSize = section.type === "all" ? 50 : 100;
       const result = await loadAllSectionPages(
-        (page, size) => send(MESSAGE.loadSection, {
-          creatorId: creator?.id,
-          section: { id: section.id, type: section.type },
-          page,
-          pageSize: size
-        }),
+        async (page, size) => {
+          scope.assertCurrent();
+          const listing = await send(MESSAGE.loadSection, {
+            creatorId: creator?.id,
+            section: { id: section.id, type: section.type },
+            page,
+            pageSize: size
+          });
+          scope.assertCurrent();
+          return listing;
+        },
         { pageSize }
       );
+      scope.assertCurrent();
       ui.detailData = { ...result, pageSize };
       ui.detailPage = result.page;
       return;
     }
-    const nextPage = ui.detailPage + 1;
     const listing = await send(MESSAGE.loadSection, {
       creatorId: creatorForSection(section)?.id,
       section: { id: section.id, type: section.type },
       page: nextPage,
       pageSize: section.type === "all" ? 50 : 100
     });
-    const existing = ui.detailData?.items ?? [];
+    scope.assertCurrent();
     const known = new Set(existing.map(item => String(item.id)));
     ui.detailData = {
       ...listing,
@@ -1054,15 +1096,16 @@ async function loadMoreDetail() {
     };
     ui.detailPage = nextPage;
   } catch (error) {
-    ui.error = toErrorMessage(error);
+    if (scope.current()) ui.error = toErrorMessage(error);
   } finally {
-    ui.loading = false;
-    render();
+    if (scope.current()) { ui.loading = false; render(); }
   }
 }
 
 async function loadCompleteSection(section) {
   if (!section) throw new Error("未找到要播放的栏目");
+  section = sectionWithCreator(section);
+  const scope = detailRequestScope(section);
   const creator = creatorForSection(section);
   if (!creator) throw new Error("请先选择一个 UP 主");
   const pageSize = section.type === "all" ? 50 : 100;
@@ -1072,20 +1115,25 @@ async function loadCompleteSection(section) {
   render();
   try {
     const result = await loadAllSectionPages(
-      (page, size) => send(MESSAGE.loadSection, {
-        creatorId: creator.id,
-        section: { id: section.id, type: section.type },
-        page,
-        pageSize: size
-      }),
+      (page, size) => {
+        scope.assertCurrent();
+        return send(MESSAGE.loadSection, {
+          creatorId: creator.id,
+          section: { id: section.id, type: section.type },
+          page,
+          pageSize: size
+        });
+      },
       {
         pageSize,
         onProgress: ({ items, total }) => {
+          scope.assertCurrent();
           ui.notice = `正在读取“${section.title}”：${Math.min(items.length, total)} / ${total}`;
           render();
         }
       }
     );
+    scope.assertCurrent();
     if (ui.activeSection?.key === section.key) {
       ui.detailData = { items: result.items, total: result.total, page: result.page, pageSize };
       ui.detailPage = result.page;
@@ -1093,11 +1141,10 @@ async function loadCompleteSection(section) {
     if (!result.items.length) throw new Error("当前栏目没有可播放的作品");
     return result.items;
   } catch (error) {
-    ui.notice = "";
+    if (scope.current()) ui.notice = "";
     throw error;
   } finally {
-    ui.loadingSectionKey = null;
-    render();
+    if (scope.current()) { ui.loadingSectionKey = null; ui.loading = false; render(); }
   }
 }
 
@@ -1106,13 +1153,15 @@ function queueForSection(section, items = section.items ?? [], order = currentTr
 }
 
 async function playSectionFromCheckpoint(section) {
+  section = sectionWithCreator(section);
+  const order = currentTrackSortDirection();
   const checkpoint = playbackCheckpointForSection(section);
   if (!checkpoint) {
     const items = await loadCompleteSection(section);
     await playerCommand("playQueue", {
-      queue: queueForSection(section, items),
+      queue: queueForSection(section, items, order),
       index: 0,
-      queueContext: queueContextForSection(section)
+      queueContext: queueContextForSection(section, order)
     });
     return;
   }
@@ -1275,6 +1324,7 @@ async function refreshCacheInfo() {
 }
 
 async function cacheTracks(tracks, section) {
+  section = sectionWithCreator(section);
   if (!tracks.length) throw new Error("当前栏目没有可缓存的作品");
   const contextual = tracks.map(track => trackWithContext(track, section));
   const snapshot = await send(MESSAGE.cacheCommand, {
@@ -1313,6 +1363,10 @@ async function cachePlaylistArchive(playlist) {
 }
 
 async function cacheWholeSection(section) {
+  section = sectionWithCreator(section);
+  const generation = pageGeneration;
+  const format = ui.app.settings.defaultFormat;
+  const bitrate = ui.app.settings.mp3Bitrate;
   const creator = creatorForSection(section);
   if (!creator) throw new Error("未找到栏目的所属 UP 主");
   ui.notice = `正在读取“${section.title}”的全部作品……`;
@@ -1331,12 +1385,12 @@ async function cacheWholeSection(section) {
     payload: {
       tracks: contextual,
       section: { id: section.id, type: section.type, title: section.title },
-      format: ui.app.settings.defaultFormat,
-      bitrate: ui.app.settings.mp3Bitrate
+      format,
+      bitrate
     }
   });
   ui.cacheInfo = { ...(ui.cacheInfo ?? {}), ...snapshot };
-  ui.notice = `“${section.title}”的 ${contextual.length} 个作品已加入缓存队列。`;
+  if (generation === pageGeneration) ui.notice = `“${section.title}”的 ${contextual.length} 个作品已加入缓存队列。`;
   showCacheToast(`已将 ${contextual.length} 个作品加入缓存队列`, ui.cacheInfo);
   await refreshCacheInfo();
   renderCacheState();
@@ -1535,8 +1589,20 @@ root.addEventListener("click", async event => {
   const button = event.target.closest("[data-action]");
   if (!button || button.disabled) return;
   const action = button.dataset.action;
+  const navigates = ["show-creator", "show-playlists", "show-favorite-sections", "show-downloads",
+    "show-settings", "open-cache-queue", "select-creator", "add-creator", "remove-creator",
+    "open-section", "open-favorite-section"].includes(action);
+  if (navigates) {
+    pageGeneration += 1;
+    detailRequest += 1;
+    ui.searching = false;
+    ui.loading = false;
+    ui.loadingSectionKey = null;
+    ui.notice = "";
+  }
+  const generation = pageGeneration;
   try {
-    if (action === "close-search") { ui.searchOpen = false; render(); }
+    if (action === "close-search") { searchRequest += 1; ui.searching = false; ui.searchOpen = false; render(); }
     else if (action === "show-creator") {
       ui.view = ui.detailOrigin === "favorites" ? "favorites" : "creator";
       ui.activeSection = null;
@@ -1722,8 +1788,9 @@ root.addEventListener("click", async event => {
       const favorite = (ui.app.favoriteSections ?? []).find(item => item.key === button.dataset.key);
       if (!favorite) throw new Error("收藏的栏目不存在");
       const section = favoriteSectionToSection(favorite);
+      const order = currentTrackSortDirection();
       const items = await loadCompleteSection(section);
-      await playerCommand("playQueue", { queue: queueForSection(section, items), index: 0, queueContext: queueContextForSection(section) });
+      await playerCommand("playQueue", { queue: queueForSection(section, items, order), index: 0, queueContext: queueContextForSection(section, order) });
     }
     else if (action === "resume-favorite-section") {
       const favorite = (ui.app.favoriteSections ?? []).find(item => item.key === button.dataset.key);
@@ -1733,6 +1800,8 @@ root.addEventListener("click", async event => {
     else if (action === "open-section") await openSection(button.dataset.key);
     else if (action === "load-more") await loadMoreDetail();
     else if (action === "clear-track-search") {
+      detailRequest += 1;
+      ui.loading = false;
       ui.trackSearchKeyword = "";
       render();
     }
@@ -1746,20 +1815,24 @@ root.addEventListener("click", async event => {
       openPlaylistPicker(queue, `搜索“${ui.trackSearchKeyword}”的结果`);
     }
     else if (action === "select-creator") {
-      await send(MESSAGE.selectCreator, { id: button.dataset.id });
       ui.app.settings.activeCreatorId = button.dataset.id;
       ui.view = "creator";
       ui.activeContent = ui.app.creatorContent[button.dataset.id] ?? null;
+      render();
+      await send(MESSAGE.selectCreator, { id: button.dataset.id });
+      if (generation !== pageGeneration) return;
       await loadActiveCreator();
     }
     else if (action === "add-creator") {
       const creator = ui.searchResults.find(item => String(item.id) === String(button.dataset.id));
       const result = await send(MESSAGE.addCreator, { creator });
       ui.app.creators = result.creators;
+      if (generation !== pageGeneration) return;
       ui.app.settings.activeCreatorId = result.creator.id;
       ui.searchResults = [];
       ui.searchKeyword = "";
       ui.searchOpen = false;
+      searchRequest += 1;
       ui.view = "creator";
       await loadActiveCreator(true);
     }
@@ -1767,6 +1840,7 @@ root.addEventListener("click", async event => {
     else if (action === "remove-creator") {
       const removed = activeCreator();
       ui.app.creators = await send(MESSAGE.removeCreator, { id: removed.id });
+      if (generation !== pageGeneration) return;
       ui.app.settings.activeCreatorId = ui.app.creators[0]?.id ?? null;
       ui.activeContent = null;
       ui.notice = `已从扩展列表移除“${removed.name}”，本地音频文件不会删除。`;
@@ -1774,15 +1848,18 @@ root.addEventListener("click", async event => {
     }
     else if (action === "play-section") {
       const section = findSection(button.dataset.key);
+      const order = currentTrackSortDirection();
       const items = await loadCompleteSection(section);
-      await playerCommand("playQueue", { queue: queueForSection(section, items), index: 0, queueContext: queueContextForSection(section) });
+      await playerCommand("playQueue", { queue: queueForSection(section, items, order), index: 0, queueContext: queueContextForSection(section, order) });
     }
     else if (action === "resume-section") {
       await playSectionFromCheckpoint(findSection(button.dataset.key));
     }
     else if (action === "play-detail") {
-      const items = await loadCompleteSection(ui.activeSection);
-      await playerCommand("playQueue", { queue: queueForSection(ui.activeSection, items), index: 0, queueContext: queueContextForSection(ui.activeSection) });
+      const section = sectionWithCreator(ui.activeSection);
+      const order = currentTrackSortDirection();
+      const items = await loadCompleteSection(section);
+      await playerCommand("playQueue", { queue: queueForSection(section, items, order), index: 0, queueContext: queueContextForSection(section, order) });
     }
     else if (action === "resume-detail") {
       await playSectionFromCheckpoint(ui.activeSection);
@@ -1861,6 +1938,7 @@ root.addEventListener("click", async event => {
       await cacheWholeSection(section);
     }
   } catch (error) {
+    if (error.code === "STALE_UI_REQUEST" || generation !== pageGeneration) return;
     ui.error = toErrorMessage(error);
     render();
   }
