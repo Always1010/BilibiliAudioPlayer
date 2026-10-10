@@ -790,6 +790,8 @@
 - 验证方式：权限撤回、NotReadableError、根权限拒绝均保留索引；缺失与空文件清除；其他副本可用，恢复权限与设备后直接复用。缓存读取、根隔离及索引事务测试通过。
 - 相关文件：services/file-store.js、tests/cache-file-access.test.mjs。
 
+- 补充修复与验证：本地媒体就绪失败带媒体错误码，仅明确解码错误或不支持格式时移除位置；中止、网络错误及就绪超时保留索引，继续其他副本或线上回退。真实离屏加载测试逐项覆盖错误码 1/2/3/4 与超时，清理仍限定原 rootId。补充文件：offscreen/offscreen.js、tests/cached-media-errors.test.mjs、docs/CACHE.md。
+
 ## ISSUE-077：追更局部分页遗漏新增并误判初始基线
 
 - 日期：2026-10-10
