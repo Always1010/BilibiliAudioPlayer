@@ -755,3 +755,13 @@
 - 解决方案：所有栏目根据最新总数补全分页，使用捕获的排序创建完整队列，再按所选作品身份定位起播；作品已移除时明确报错，不误播首项。
 - 验证方式：真实 UI 回归覆盖主页 30 条预览与详情 50 条在 120 条集合中读取三页，完整队列、所选起播项及倒序一致；UI 异步上下文、语法和 git diff --check 通过。
 - 相关文件：`ui/app.js`、`tests/ui-track-queue.test.mjs`、`docs/ISSUES.md`
+
+### ISSUE-063 缓存根目录切换后索引可能误用同名文件
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：缓存索引只有相对路径，切换目录后可能读取或删除新目录中的同名文件；其他上下文可能继续使用旧句柄。
+- 原因：索引未绑定根目录身份，句柄缓存缺少代次控制，目录切换与文件操作缺少跨上下文协调。
+- 解决方案：IndexedDB v2 以 rootId 与作品 ID 建立组合索引，按目录句柄身份复用 rootId；历史无根索引保留待扫描，不参与读取或删除。缓存、扫描、删除与读取使用 Web Locks，切换目录要求独占锁。删除请求携带原 rootId，迟到媒体错误只清理原根索引，句柄加载用代次拒绝过期回写。
+- 验证方式：缓存根目录、索引事务、文件存储、真实 UI 根目录与播放加载回归测试通过；验证 A/B 同路径隔离、切回保留、过期删除拒绝、忙时切换拒绝、旧索引保留与迟到句柄失效。
+- 相关文件：services/file-store.js、services/cache-records.js、services/cache-library.js、offscreen/offscreen.js、ui/app.js、docs/CACHE.md、tests/cache-root.test.mjs、tests/ui-cache-root.test.mjs 及对应测试辅助文件。

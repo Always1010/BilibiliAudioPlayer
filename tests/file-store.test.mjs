@@ -30,6 +30,27 @@ cache.set(selected);
 assert.equal(await cache.get(), selected);
 assert.equal(loads, 2, "用户新选目录应立即替换缓存且无需再次加载");
 
+let releaseOld;
+const stale = createDirectoryHandleCache(() => new Promise(resolve => { releaseOld = resolve; }));
+const oldLoad = stale.get();
+await Promise.resolve();
+stale.set(selected);
+releaseOld(first);
+assert.equal(await oldLoad, selected, "迟到的加载不能覆盖新选择");
+assert.equal(await stale.get(), selected);
+
+let attempt = 0;
+let releaseStale;
+const cleared = createDirectoryHandleCache(() => {
+  attempt += 1;
+  return attempt === 1 ? new Promise(resolve => { releaseStale = resolve; }) : second;
+});
+const obsolete = cleared.get();
+await Promise.resolve();
+cleared.clear();
+releaseStale(first);
+assert.equal(await obsolete, second, "clear后旧Promise不得重新污染缓存");
+
 assert.equal(needsCacheDirectoryReauthorization({ configured: true, permission: "prompt" }), true);
 assert.equal(needsCacheDirectoryReauthorization({ configured: true, permission: "denied" }), true);
 assert.equal(needsCacheDirectoryReauthorization({ configured: true, permission: "granted" }), false);

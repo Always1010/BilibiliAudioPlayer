@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { mockIndexedDB } from "./helpers/indexeddb.mjs";
-import { deleteCacheLocation, getCacheRecord, putCacheRecord } from "../services/file-store.js";
+import { mockDirectory, mockIndexedDB, mockWebLocks } from "./helpers/indexeddb.mjs";
+import { chooseCacheDirectory, deleteCacheLocation, getCacheRecord, putCacheRecord } from "../services/file-store.js";
 
 globalThis.indexedDB = mockIndexedDB();
+Object.defineProperty(globalThis.navigator, "locks", { value: mockWebLocks(), configurable: true });
+globalThis.showDirectoryPicker = async () => mockDirectory("事务目录");
+await chooseCacheDirectory();
 function record(id) {
   return { trackId: "BVTEST", title: "事务作品", id, path: [`${id}.mp3`], format: "mp3", bitrate: 192 };
 }

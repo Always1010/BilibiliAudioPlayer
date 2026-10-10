@@ -7,38 +7,48 @@ import {
 } from "./cache-records.js";
 
 const DATABASE_NAME = "bili-audio-files";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const HANDLE_STORE = "handles";
 const RECORD_STORE = "records";
+const ROOT_RECORD_STORE = "root-records";
 const DIRECTORY_KEY = "cache-directory";
+const ROOTS_KEY = "cache-roots";
+const DIRECTORY_LOCK = "bili-audio-cache-directory";
 
 export function createDirectoryHandleCache(loader) {
   let cached = null;
   let loading = null;
-  return {
+  let generation = 0;
+  const cache = {
     async get() {
       if (cached) return cached;
       if (!loading) {
-        loading = Promise.resolve(loader())
+        const currentGeneration = generation;
+        const task = Promise.resolve().then(loader)
           .then(handle => {
+            if (currentGeneration !== generation) return cache.get();
             cached = handle ?? null;
             return cached;
           })
           .finally(() => {
-            loading = null;
+            if (loading === task) loading = null;
           });
+        loading = task;
       }
       return loading;
     },
     set(handle) {
+      generation += 1;
       cached = handle ?? null;
       loading = null;
     },
     clear() {
+      generation += 1;
       cached = null;
       loading = null;
     }
   };
+  return cache;
 }
 
 function openDatabase() {
@@ -48,6 +58,7 @@ function openDatabase() {
       const database = request.result;
       if (!database.objectStoreNames.contains(HANDLE_STORE)) database.createObjectStore(HANDLE_STORE);
       if (!database.objectStoreNames.contains(RECORD_STORE)) database.createObjectStore(RECORD_STORE, { keyPath: "trackId" });
+      if (!database.objectStoreNames.contains(ROOT_RECORD_STORE)) database.createObjectStore(ROOT_RECORD_STORE, { keyPath: "recordKey" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -73,19 +84,24 @@ async function useStore(name, mode, operation) {
   }
 }
 
-async function updateCacheRecord(trackId, updater) {
+function recordKey(rootId, trackId) {
+  return `${rootId}\u0000${String(trackId)}`;
+}
+
+async function updateCacheRecord(rootId, trackId, updater) {
   const database = await openDatabase();
   try {
     return await new Promise((resolve, reject) => {
-      const transaction = database.transaction(RECORD_STORE, "readwrite");
-      const store = transaction.objectStore(RECORD_STORE);
+      const transaction = database.transaction(ROOT_RECORD_STORE, "readwrite");
+      const store = transaction.objectStore(ROOT_RECORD_STORE);
       let next;
-      const request = store.get(String(trackId));
+      const key = recordKey(rootId, trackId);
+      const request = store.get(key);
       request.onsuccess = () => {
         try {
           next = updater(request.result);
-          if (next) store.put(next);
-          else store.delete(String(trackId));
+          if (next) store.put({ ...next, rootId, recordKey: key });
+          else store.delete(key);
         } catch (error) {
           transaction.abort();
           reject(error);
@@ -100,18 +116,63 @@ async function updateCacheRecord(trackId, updater) {
   }
 }
 
-const directoryHandleCache = createDirectoryHandleCache(() =>
-  useStore(HANDLE_STORE, "readonly", store => store.get(DIRECTORY_KEY))
-);
+function withDirectoryLock(mode, operation, ifAvailable = false) {
+  if (!globalThis.navigator?.locks) throw new Error("当前浏览器不支持安全的缓存目录协调，请升级 Edge 或 Chrome");
+  return navigator.locks.request(DIRECTORY_LOCK, { mode, ifAvailable }, lock => {
+    if (!lock) throw new Error("缓存、扫描或删除任务正在执行，请等待任务结束后切换目录");
+    return operation();
+  });
+}
+
+async function saveDirectoryState(selected, roots) {
+  await useStore(HANDLE_STORE, "readwrite", store => {
+    store.put(roots, ROOTS_KEY);
+    return store.put(selected, DIRECTORY_KEY);
+  });
+}
+
+async function loadDirectoryState() {
+  const selected = await useStore(HANDLE_STORE, "readonly", store => store.get(DIRECTORY_KEY));
+  if (!selected || selected.rootId) return selected ?? null;
+  // Keep legacy file indexes unassigned: their relative paths are insufficient
+  // evidence that they belong to the directory currently selected.
+  return navigator.locks.request(`${DIRECTORY_LOCK}-identity`, async () => {
+    const latest = await useStore(HANDLE_STORE, "readonly", store => store.get(DIRECTORY_KEY));
+    if (!latest || latest.rootId) return latest ?? null;
+    const migrated = { rootId: crypto.randomUUID(), handle: latest };
+    const roots = await useStore(HANDLE_STORE, "readonly", store => store.get(ROOTS_KEY)) ?? [];
+    await saveDirectoryState(migrated, [...roots, migrated]);
+    return migrated;
+  });
+}
+
+const directoryHandleCache = createDirectoryHandleCache(async () => (await loadDirectoryState())?.handle);
+
+export function withCacheDirectoryOperation(operation) {
+  return withDirectoryLock("shared", async () => {
+    const selected = await loadDirectoryState();
+    const root = await requireWritableDirectory();
+    return operation(root, selected.rootId);
+  });
+}
 
 export async function chooseCacheDirectory() {
   if (!("showDirectoryPicker" in globalThis)) {
     throw new Error("当前浏览器不支持目录授权，请升级 Edge 或 Chrome");
   }
   const handle = await globalThis.showDirectoryPicker({ id: "bili-audio-cache", mode: "readwrite" });
-  await useStore(HANDLE_STORE, "readwrite", store => store.put(handle, DIRECTORY_KEY));
-  directoryHandleCache.set(handle);
-  return { name: handle.name, permission: "granted" };
+  return withDirectoryLock("exclusive", async () => {
+    await loadDirectoryState();
+    const roots = await useStore(HANDLE_STORE, "readonly", store => store.get(ROOTS_KEY)) ?? [];
+    let same = null;
+    for (const candidate of roots) {
+      try { if (await handle.isSameEntry(candidate.handle)) { same = candidate; break; } } catch {}
+    }
+    const selected = { rootId: same?.rootId ?? crypto.randomUUID(), handle };
+    await saveDirectoryState(selected, [...roots.filter(root => root.rootId !== selected.rootId), selected]);
+    directoryHandleCache.set(handle);
+    return { rootId: selected.rootId, name: handle.name, permission: "granted" };
+  }, true);
 }
 
 export function needsCacheDirectoryReauthorization(directory) {
@@ -119,15 +180,20 @@ export function needsCacheDirectoryReauthorization(directory) {
 }
 
 export async function reauthorizeCacheDirectory() {
-  const handle = await getCacheDirectoryHandle();
-  if (!handle) return chooseCacheDirectory();
-  const permission = await handle.requestPermission({ mode: "readwrite" });
-  if (permission !== "granted") throw new Error("未获得缓存目录读写权限，请允许目录访问后重试");
-  directoryHandleCache.set(handle);
-  return { name: handle.name, permission };
+  if (!(await loadDirectoryState())?.handle) return chooseCacheDirectory();
+  return withDirectoryLock("shared", async () => {
+    const selected = await loadDirectoryState();
+    const permission = await selected.handle.requestPermission({ mode: "readwrite" });
+    if (permission !== "granted") throw new Error("未获得缓存目录读写权限，请允许目录访问后重试");
+    directoryHandleCache.set(selected.handle);
+    return { rootId: selected.rootId, name: selected.handle.name, permission };
+  });
 }
 
-export function getCacheDirectoryHandle() {
+export async function getCacheDirectoryHandle() {
+  // Re-read persisted selection so UI and offscreen contexts cannot retain a
+  // previously selected root after another context switches directories.
+  directoryHandleCache.set((await loadDirectoryState())?.handle ?? null);
   return directoryHandleCache.get();
 }
 
@@ -136,10 +202,19 @@ export function clearCacheDirectoryHandle() {
 }
 
 export async function getCacheDirectoryInfo() {
-  const handle = await getCacheDirectoryHandle();
+  const selected = await loadDirectoryState();
+  const handle = selected?.handle;
   if (!handle) return { configured: false, name: "", permission: "prompt" };
   const permission = await handle.queryPermission({ mode: "readwrite" });
-  return { configured: true, name: handle.name, permission };
+  const [legacy, current] = await Promise.all([
+    useStore(RECORD_STORE, "readonly", store => store.getAll()),
+    useStore(ROOT_RECORD_STORE, "readonly", store => store.getAll())
+  ]);
+  const verified = new Set(current.filter(record => record.rootId === selected.rootId)
+    .flatMap(record => normalizeCacheRecord(record)?.locations.map(location => `${record.trackId}\u0000${JSON.stringify(location.path)}`) ?? []));
+  const unassignedCount = legacy.filter(record => normalizeCacheRecord(record)?.locations
+    .some(location => !verified.has(`${record.trackId}\u0000${JSON.stringify(location.path)}`))).length;
+  return { configured: true, rootId: selected.rootId, name: handle.name, permission, unassignedCount };
 }
 
 function isNotFoundError(error) {
@@ -155,24 +230,39 @@ export async function requireWritableDirectory() {
 }
 
 export async function putCacheRecord(record) {
-  return updateCacheRecord(record.trackId, current => mergeCacheLocation(current, record));
+  return withDirectoryLock("shared", async () => {
+  const rootId = (await loadDirectoryState())?.rootId;
+  if (!rootId) throw new Error("请先选择缓存目录");
+  if (record.rootId && record.rootId !== rootId) throw new Error("缓存目录已改变，请重新执行缓存任务");
+  const incoming = { ...record, rootId };
+  if (Array.isArray(record.locations)) incoming.locations = record.locations.map(location => ({ ...location, rootId }));
+  return updateCacheRecord(rootId, record.trackId, current => mergeCacheLocation(current, incoming));
+  });
 }
 
 export async function getCacheRecord(trackId) {
-  return normalizeCacheRecord(await useStore(RECORD_STORE, "readonly", store => store.get(String(trackId))));
+  const rootId = (await loadDirectoryState())?.rootId;
+  if (!rootId) return null;
+  return normalizeCacheRecord(await useStore(ROOT_RECORD_STORE, "readonly", store => store.get(recordKey(rootId, trackId))));
 }
 
 export async function listCacheRecords() {
-  const values = await useStore(RECORD_STORE, "readonly", store => store.getAll());
-  return values.map(normalizeCacheRecord).filter(Boolean);
+  const rootId = (await loadDirectoryState())?.rootId;
+  if (!rootId) return [];
+  const values = await useStore(ROOT_RECORD_STORE, "readonly", store => store.getAll());
+  return values.filter(value => value.rootId === rootId).map(normalizeCacheRecord).filter(Boolean);
 }
 
-export function deleteCacheRecord(trackId) {
-  return useStore(RECORD_STORE, "readwrite", store => store.delete(String(trackId)));
+export async function deleteCacheRecord(trackId) {
+  const rootId = (await loadDirectoryState())?.rootId;
+  if (!rootId) return;
+  return useStore(ROOT_RECORD_STORE, "readwrite", store => store.delete(recordKey(rootId, trackId)));
 }
 
-export async function deleteCacheLocation(trackId, locationId) {
-  return updateCacheRecord(trackId, current => removeCacheLocation(current, locationId));
+export async function deleteCacheLocation(trackId, locationId, rootId = null) {
+  rootId ??= (await loadDirectoryState())?.rootId;
+  if (!rootId) return null;
+  return updateCacheRecord(rootId, trackId, current => removeCacheLocation(current, locationId));
 }
 
 export async function removeCacheFileAtPath(root, path) {
@@ -205,10 +295,17 @@ export async function pruneEmptyCacheDirectories(root, path) {
 }
 
 export async function deleteCacheFiles(targets) {
-  const root = await requireWritableDirectory();
+  return withCacheDirectoryOperation((root, rootId) => deleteCacheFilesInDirectory(targets, root, rootId));
+}
+
+async function deleteCacheFilesInDirectory(targets, root, rootId) {
   const unique = new Map((targets ?? []).map(target => [`${target.trackId}\u0000${target.locationId}`, target]));
   const results = [];
   for (const target of unique.values()) {
+    if (!target.rootId || target.rootId !== rootId) {
+      results.push({ ...target, status: "failed", size: 0, error: "缓存目录已改变或目标未校准，请刷新后重新选择" });
+      continue;
+    }
     const record = await getCacheRecord(target.trackId);
     const location = record?.locations.find(item => item.id === target.locationId);
     if (!record || !location) {
@@ -277,13 +374,20 @@ async function fileAtPath(root, path) {
 }
 
 export async function findCachedFiles(record, options = {}) {
-  const root = await getCacheDirectoryHandle();
+  return withDirectoryLock("shared", async () => {
+    const selected = await loadDirectoryState();
+    return findCachedFilesInDirectory(record, options, selected);
+  });
+}
+
+async function findCachedFilesInDirectory(record, options, selected) {
+  const root = selected?.handle;
   if (!root || await root.queryPermission({ mode: "read" }) !== "granted") return [];
   const normalized = normalizeCacheRecord(record);
-  if (!normalized) return [];
+  if (!normalized || !normalized.rootId || normalized.rootId !== selected.rootId) return [];
   const preferredScopeKey = String(options.preferredScopeKey ?? "");
   const locations = orderedCacheLocations(normalized, preferredScopeKey).filter(location =>
-    locationMatches(location, {
+    location.rootId === selected.rootId && locationMatches(location, {
       scopeKey: options.onlyPreferred ? preferredScopeKey : "",
       format: options.format,
       bitrate: options.bitrate

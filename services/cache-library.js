@@ -123,6 +123,7 @@ export function flattenCacheLocations(records) {
         kind: "file",
         key: cacheLocationKey(record.trackId, location.id),
         trackId: record.trackId,
+        rootId: record.rootId,
         locationId: location.id,
         bvid: record.bvid,
         title: record.title,
