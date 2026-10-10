@@ -34,6 +34,7 @@ function normalizeLocation(value, fallback = {}) {
   const id = text(value.id, `${scope.key}:${format}:${bitrate ?? "source"}:${path.join("/")}`);
   return {
     id,
+    rootId: text(value.rootId, fallback.rootId),
     scope,
     path,
     format,
@@ -62,6 +63,7 @@ export function normalizeCacheRecord(value) {
   const primary = locations[0] ?? {};
   return {
     trackId,
+    rootId: text(value.rootId),
     bvid: text(value.bvid, trackId.startsWith("BV") ? trackId : ""),
     title: text(value.title, value.bvid ?? trackId),
     creator: value.creator && typeof value.creator === "object"

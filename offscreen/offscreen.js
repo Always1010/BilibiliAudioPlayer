@@ -12,7 +12,8 @@ import {
   putCacheRecord,
   pruneEmptyCacheDirectories,
   requireWritableDirectory,
-  safeFilePart
+  safeFilePart,
+  withCacheDirectoryOperation
 } from "../services/file-store.js";
 import { archiveScope, scopeKeyFromContext } from "../services/cache-records.js";
 import { encodeAudioBufferToMp3, normalizeMp3Bitrate } from "../services/mp3.js";
@@ -343,7 +344,7 @@ async function loadAndPlay(index, resumeAt = 0) {
         assertCurrentLoad(load);
         disposeCurrentSource();
         if (error?.code === "RESUME_SEEK_FAILED") throw error;
-        await deleteCacheLocation(cachedRecord.trackId, cached.location.id);
+        await deleteCacheLocation(cachedRecord.trackId, cached.location.id, cachedRecord.rootId);
       }
     }
     if (!source) {
@@ -681,7 +682,7 @@ async function downloadTrack(task, getRoot) {
     track: task.track,
     status: "completed",
     message: localSource ? "已从其他本地归档复制" : "已从线上缓存",
-    record: { ...record, ...location }
+    record: saved
   });
   return saved;
 }
@@ -689,26 +690,32 @@ async function downloadTrack(task, getRoot) {
 async function processCacheQueue() {
   if (cacheRunning) return;
   cacheRunning = true;
-  let rootPromise = null;
-  const getRoot = () => {
-    if (!rootPromise) rootPromise = requireWritableDirectory();
-    return rootPromise;
-  };
-  await reportCache({ status: "started" });
-  while (cacheQueue.length) {
-    const task = cacheQueue.shift();
-    currentCacheTask = task;
-    try {
-      await reportCache({ track: task.track, status: "preparing", progress: 0 });
-      await downloadTrack(task, getRoot);
-    } catch (error) {
+  try {
+    await withCacheDirectoryOperation(async root => {
+      await reportCache({ status: "started" });
+      while (cacheQueue.length) {
+        const task = cacheQueue.shift();
+        currentCacheTask = task;
+        try {
+          await reportCache({ track: task.track, status: "preparing", progress: 0 });
+          await downloadTrack(task, async () => root);
+        } catch (error) {
+          await reportCache({ track: task.track, status: "failed", message: error.message });
+        } finally {
+          currentCacheTask = null;
+        }
+      }
+    });
+  } catch (error) {
+    while (cacheQueue.length) {
+      const task = cacheQueue.shift();
       await reportCache({ track: task.track, status: "failed", message: error.message });
-    } finally {
-      currentCacheTask = null;
     }
+  } finally {
+    currentCacheTask = null;
+    cacheRunning = false;
+    await reportCache({ status: "idle" });
   }
-  cacheRunning = false;
-  await reportCache({ status: "idle" });
 }
 
 function cacheTaskTargetKey(task) {
@@ -728,9 +735,11 @@ async function handleCacheCommand(command, payload = {}) {
     return { refreshed: true };
   }
   if (command === "scanArchives") {
-    const recovery = await scanCacheArchives();
-    const [directory, records] = await Promise.all([getCacheDirectoryInfo(), listCacheRecords()]);
-    return cacheSnapshot({ directory, records, recovery });
+    return withCacheDirectoryOperation(async () => {
+      const recovery = await scanCacheArchives();
+      const [directory, records] = await Promise.all([getCacheDirectoryInfo(), listCacheRecords()]);
+      return cacheSnapshot({ directory, records, recovery });
+    });
   }
   if (command === "cacheTracks") {
     const format = payload.format === "mp3" ? "mp3" : "original";
@@ -764,11 +773,13 @@ async function handleCacheCommand(command, payload = {}) {
     if (targets.some(target => busy.has(`${String(target.trackId)}\u0000${target.locationId}`))) {
       throw new Error("所选缓存仍在下载或等待队列中，请在任务结束后再删除");
     }
-    const deletion = await deleteCacheFiles(targets);
-    const manifestErrors = await updateDeletedPlaylistManifests(deletion.root, deletion.results);
-    const { root, ...summary } = deletion;
-    const [directory, records] = await Promise.all([getCacheDirectoryInfo(), listCacheRecords()]);
-    return cacheSnapshot({ directory, records, deletion: { ...summary, manifestErrors } });
+    return withCacheDirectoryOperation(async () => {
+      const deletion = await deleteCacheFiles(targets);
+      const manifestErrors = await updateDeletedPlaylistManifests(deletion.root, deletion.results);
+      const { root, ...summary } = deletion;
+      const [directory, records] = await Promise.all([getCacheDirectoryInfo(), listCacheRecords()]);
+      return cacheSnapshot({ directory, records, deletion: { ...summary, manifestErrors } });
+    });
   }
   throw new Error(`未知缓存命令：${command}`);
 }

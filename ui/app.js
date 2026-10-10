@@ -496,7 +496,7 @@ function downloadsPage() {
     ${ui.error ? `<div class="error-message">${escapeHtml(ui.error)}</div>` : ""}
     ${ui.notice ? `<div class="notice">${escapeHtml(ui.notice)}</div>` : ""}</div>
     <div class="settings-grid" data-cache-section="summary">
-      <div class="settings-panel"><h2>本地目录</h2><div class="setting-row"><span>目录名称</span><strong>${escapeHtml(directory?.name || "尚未选择")}</strong></div><div class="setting-row"><span>访问权限</span><strong class="${directory?.permission === "granted" ? "cached" : ""}">${directory?.permission === "granted" ? "可读写" : directory?.configured ? "需要重新授权" : "未配置"}</strong></div></div>
+      <div class="settings-panel"><h2>本地目录</h2><div class="setting-row"><span>目录名称</span><strong>${escapeHtml(directory?.name || "尚未选择")}</strong></div><div class="setting-row"><span>访问权限</span><strong class="${directory?.permission === "granted" ? "cached" : ""}">${directory?.permission === "granted" ? "可读写" : directory?.configured ? "需要重新授权" : "未配置"}</strong></div>${directory?.unassignedCount > 0 ? '<p class="muted">旧缓存索引待校准，请扫描本地归档；已有文件会保留。</p>' : ""}</div>
       <div class="settings-panel"><h2>缓存概览</h2><div class="setting-row"><span>进行中与等待</span><strong>${activeCount}</strong></div><div class="setting-row"><span>本地可用作品</span><strong>${records.length}</strong></div><div class="setting-row"><span>归档副本</span><strong>${locations.length}</strong></div><div class="setting-row"><span>占用空间</span><strong>${formatBytes(totalBytes)}</strong></div></div>
     </div>
     <div class="cache-queue-panel" data-cache-section="queue">
@@ -566,7 +566,7 @@ async function deleteCacheNodes(keys, label) {
   try {
     ui.cacheInfo = await send(MESSAGE.cacheCommand, {
       command: "deleteCacheLocations",
-      payload: { locations: targets.map(target => ({ trackId: target.trackId, locationId: target.locationId })) }
+      payload: { locations: targets.map(target => ({ trackId: target.trackId, locationId: target.locationId, rootId: target.rootId })) }
     });
     const result = ui.cacheInfo.deletion ?? {};
     const failed = Number(result.failed) || 0;
