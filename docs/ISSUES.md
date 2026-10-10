@@ -665,3 +665,13 @@
 - 解决方案：在后台按存储键协调更新，并为播放器保存、清空、检查点删除及初始化预留重叠键。时长请求移到临界区外，完成后仅按播放列表 ID 和 BV 号把有效时长合并到最新数据，保留用户编辑和已有正时长，不恢复已删除对象。
 - 验证方式：播放状态存储及播放列表测试通过，覆盖并发更新、失败后继续、保存与清空/删除检查点顺序，以及时长修复期间新增、重命名、重排、删除列表和作品；相关 JavaScript 语法与 git diff --check 通过。
 - 相关文件：`shared/storage.js`、`services/playlists.js`、`background/service-worker.js`、`tests/playback-storage.test.mjs`、`tests/playlists.test.mjs`、`docs/ISSUES.md`
+
+## ISSUE-054：全部作品缓存在首个分页提前结束
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：全部作品超过 50 条时，点击缓存全部只加入首 50 条，界面仍报告栏目缓存提交完成。
+- 原因：界面请求每页 100 条，但投稿接口最多返回 50 条，短页判断错误采用请求大小。
+- 解决方案：缓存全部复用完整栏目分页器，全部作品请求 50 条，并根据响应的实际 pageSize 继续分页。完整读取去重后统一入队；空页、重复页或截断数据明确报错，不把部分作品当作完整栏目提交。
+- 验证方式：分页器及真实 UI 函数回归测试通过，覆盖请求 100 被限制到 50 后继续分页、120 条三页完整入队、截断响应不入队；相关 JavaScript 语法及 git diff --check 通过。
+- 相关文件：`ui/app.js`、`services/section-pagination.js`、`tests/section-pagination.test.mjs`、`tests/ui-section-pagination.test.mjs`、`tests/helpers/app-harness.mjs`、`docs/ISSUES.md`

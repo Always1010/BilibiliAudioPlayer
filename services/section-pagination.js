@@ -3,7 +3,7 @@ function trackKey(track) {
 }
 
 export async function loadAllSectionPages(loadPage, { pageSize, onProgress } = {}) {
-  const safePageSize = Math.max(1, Number(pageSize) || 1);
+  let safePageSize = Math.max(1, Number(pageSize) || 1);
   const items = [];
   const known = new Set();
   let page = 1;
@@ -11,6 +11,9 @@ export async function loadAllSectionPages(loadPage, { pageSize, onProgress } = {
 
   while (true) {
     const listing = await loadPage(page, safePageSize);
+    // 全部作品接口会将请求的 100 条限制为 50 条，后续分页和短页判断采用实际值。
+    const actualPageSize = Number(listing?.pageSize);
+    if (Number.isFinite(actualPageSize) && actualPageSize > 0) safePageSize = actualPageSize;
     const received = Array.isArray(listing?.items) ? listing.items : [];
     total = Math.max(total, Number(listing?.total) || 0);
     const additions = received.filter(track => {
