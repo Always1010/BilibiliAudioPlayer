@@ -1317,39 +1317,27 @@ async function cacheWholeSection(section) {
   if (!creator) throw new Error("未找到栏目的所属 UP 主");
   ui.notice = `正在读取“${section.title}”的全部作品……`;
   renderCacheState();
-  const pageSize = 100;
-  let page = 1;
-  let accepted = 0;
-  let total = Number(section.total) || 0;
-  while (page === 1 || accepted < total) {
-    const listing = await send(MESSAGE.loadSection, {
-      creatorId: creator.id,
-      section: { id: section.id, type: section.type },
-      page,
-      pageSize
-    });
-    total = Number(listing.total) || total;
-    if (!listing.items.length) break;
-    const contextual = listing.items.map(track => trackWithContext(track, section));
-    const snapshot = await send(MESSAGE.cacheCommand, {
-      command: "cacheTracks",
-      payload: {
-        tracks: contextual,
-        section: { id: section.id, type: section.type, title: section.title },
-        format: ui.app.settings.defaultFormat,
-        bitrate: ui.app.settings.mp3Bitrate
-      }
-    });
-    ui.cacheInfo = { ...(ui.cacheInfo ?? {}), ...snapshot };
-    accepted += listing.items.length;
-    ui.notice = `正在加入缓存队列：${Math.min(accepted, total)} / ${total}`;
-    showCacheToast(`已将 ${Math.min(accepted, total)} 个作品加入缓存队列`, snapshot);
-    renderCacheState();
-    if (listing.items.length < pageSize || accepted >= total) break;
-    page += 1;
-  }
-  ui.notice = `“${section.title}”的 ${Math.min(accepted, total)} 个作品已加入缓存队列。`;
-  showCacheToast(`已将 ${Math.min(accepted, total)} 个作品加入缓存队列`, ui.cacheInfo);
+  const pageSize = section.type === "all" ? 50 : 100;
+  const listing = await loadAllSectionPages((page, size) => send(MESSAGE.loadSection, {
+    creatorId: creator.id,
+    section: { id: section.id, type: section.type },
+    page,
+    pageSize: size
+  }), { pageSize });
+  if (!listing.items.length) throw new Error("当前栏目没有可缓存的作品");
+  const contextual = listing.items.map(track => trackWithContext(track, section));
+  const snapshot = await send(MESSAGE.cacheCommand, {
+    command: "cacheTracks",
+    payload: {
+      tracks: contextual,
+      section: { id: section.id, type: section.type, title: section.title },
+      format: ui.app.settings.defaultFormat,
+      bitrate: ui.app.settings.mp3Bitrate
+    }
+  });
+  ui.cacheInfo = { ...(ui.cacheInfo ?? {}), ...snapshot };
+  ui.notice = `“${section.title}”的 ${contextual.length} 个作品已加入缓存队列。`;
+  showCacheToast(`已将 ${contextual.length} 个作品加入缓存队列`, ui.cacheInfo);
   await refreshCacheInfo();
   renderCacheState();
 }

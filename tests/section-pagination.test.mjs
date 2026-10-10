@@ -19,4 +19,12 @@ await assert.rejects(
   /未完整返回/
 );
 
+const cappedCalls = [];
+const capped = await loadAllSectionPages(async (page, size) => {
+  cappedCalls.push([page, size]);
+  return { total: 120, pageSize: 50, items: Array.from({ length: page < 3 ? 50 : 20 }, (_, i) => ({ id: `${page}:${i}` })) };
+}, { pageSize: 100 });
+assert.equal(capped.items.length, 120);
+assert.deepEqual(cappedCalls, [[1, 100], [2, 50], [3, 50]]);
+
 console.log("栏目分页：完整读取、去重、进度和异常中止通过");
