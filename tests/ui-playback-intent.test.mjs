@@ -56,4 +56,25 @@ resolveListing({ ok: true, data: { total: 2, pageSize: 50, items: [{ id: "BV1" }
 await browsing;
 assert.equal(app.ui.detailData.items.length, 2);
 assert.equal(app.ui.loading, false);
+
+// 清空先返回，旧暂停/设置快照和旧错误都不能把已清空的播放器复活。
+for (const staleCommand of ["pause", "rate", "volume", "failed-next"]) {
+  const pending = [];
+  const player = await appHarness(message => new Promise(resolve => pending.push({ message, resolve })));
+  player.ui.app = { settings: {}, player: { queue: [{ id: "BV1" }], currentTrack: { id: "BV1" }, playing: true, currentTime: 83 } };
+  const old = staleCommand === "failed-next"
+    ? player.click({ action: "next" })
+    : player.run(`playerCommand(${JSON.stringify(staleCommand)}, {})`);
+  const cleared = player.click({ action: "clear-play-queue" });
+  pending[1].resolve({ ok: true, data: { queue: [], currentTrack: null, playing: false, currentTime: 0, loading: false, error: "" } });
+  await cleared;
+  pending[0].resolve(staleCommand === "failed-next"
+    ? { ok: false, error: "旧切歌失败" }
+    : { ok: true, data: { queue: [{ id: "BV1" }], currentTrack: { id: "BV1" }, playing: false, currentTime: 83 } });
+  await old;
+  assert.equal(player.ui.app.player.currentTrack, null, `${staleCommand} 旧响应不得恢复当前作品`);
+  assert.equal(player.ui.app.player.queue.length, 0);
+  assert.equal(player.ui.app.player.currentTime, 0);
+  assert.equal(player.ui.app.player.error, "");
+}
 console.log("真实 UI 播放意图：补完整队列期间控制/新播放取代旧请求，不发送迟到playQueue通过");

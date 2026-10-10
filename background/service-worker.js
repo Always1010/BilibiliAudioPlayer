@@ -46,6 +46,7 @@ let creatingOffscreen = null;
 let playerSaveChain = Promise.resolve();
 let checkingCreators = null;
 let dispatchingAutoCache = null;
+let playerCommandPreparation = Promise.resolve();
 
 async function configureExtension() {
   await Promise.all([
@@ -141,6 +142,39 @@ async function appStateWithLivePlayer() {
     }
   } catch {}
   return appState;
+}
+
+async function forwardPlayerCommand(message) {
+  let response;
+  const preparing = playerCommandPreparation.then(async () => {
+    const created = await ensureOffscreenDocument();
+    if (message.command !== "hydrate") {
+      const { player } = await getAppState();
+      let needsHydration = created;
+      if (!needsHydration) {
+        try {
+          const status = await chrome.runtime.sendMessage({
+            type: MESSAGE.playerCommand, command: "status", target: "offscreen"
+          });
+          needsHydration = !status?.ok || !status.data?.hydrated;
+        } catch {
+          needsHydration = true;
+        }
+      }
+      if (needsHydration) {
+        const hydrated = await chrome.runtime.sendMessage({
+          type: MESSAGE.playerCommand, command: "hydrate", payload: { player }, target: "offscreen"
+        });
+        if (!hydrated?.ok) throw new Error(hydrated?.error || "播放器恢复失败");
+      }
+    }
+    // Serialize preparation and posting, but let the next control cancel an
+    // audio load before this command's response has finished.
+    response = chrome.runtime.sendMessage({ ...message, target: "offscreen" });
+  });
+  playerCommandPreparation = preparing.catch(() => {});
+  await preparing;
+  return response;
 }
 
 function savePlayerEvent(player) {
@@ -541,32 +575,7 @@ async function handleMessage(message) {
     case MESSAGE.resolveAudio:
       return { ok: true, data: await resolveAudioStream(message.track) };
     case MESSAGE.playerCommand:
-      const created = await ensureOffscreenDocument();
-      if (message.command !== "hydrate") {
-        const { player } = await getAppState();
-        let needsHydration = created;
-        if (!needsHydration) {
-          try {
-            const status = await chrome.runtime.sendMessage({
-              type: MESSAGE.playerCommand,
-              command: "status",
-              target: "offscreen"
-            });
-            needsHydration = !status?.ok || !status.data?.hydrated;
-          } catch {
-            needsHydration = true;
-          }
-        }
-        if (needsHydration) {
-          await chrome.runtime.sendMessage({
-            type: MESSAGE.playerCommand,
-            command: "hydrate",
-            payload: { player },
-            target: "offscreen"
-          });
-        }
-      }
-      return await chrome.runtime.sendMessage({ ...message, target: "offscreen" });
+      return await forwardPlayerCommand(message);
     case MESSAGE.cacheCommand:
       await ensureOffscreenDocument();
       return await chrome.runtime.sendMessage({ ...message, target: "offscreen" });
