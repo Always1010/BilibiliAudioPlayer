@@ -705,3 +705,13 @@
 - 解决方案：订阅配置使用独立修订号，检查结果仅合并到仍启用且修订一致的最新订阅；入队前复验当前配置。相同时间触发的检查复用一次执行，避免重叠快照互相覆盖。
 - 验证方式：执行真实后台函数的订阅并发测试通过，覆盖检查期间关闭、新增和修改配置、关闭后不入队、同时触发检查仅执行一次；相关 JavaScript 语法及 git diff --check 通过。
 - 相关文件：`background/service-worker.js`、`services/subscriptions.js`、`tests/subscription-concurrency.test.mjs`、`tests/helpers/background-harness.mjs`、`docs/ISSUES.md`
+
+## ISSUE-058：切歌与恢复会丢失用户选择的播放倍速
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：设置 2 倍等播放速度后，切歌或冷恢复音源回到 1 倍速，并可能写回持久状态。
+- 原因：只设置媒体元素 playbackRate，load 重置时的 ratechange 又把瞬时值当作偏好；音源就绪后未恢复期望速度。
+- 解决方案：期望倍速独立保存在播放器状态，设置时同步 defaultPlaybackRate 与 playbackRate，并在音源就绪后重新应用。状态上报使用期望倍速，不用加载过程中的瞬时值覆盖偏好。
+- 验证方式：倍速和播放加载回归通过，模拟 load 重置及 ratechange，覆盖 hydrate、加载期间修改倍速和切歌后保持；相关语法及 git diff --check 通过。
+- 相关文件：`offscreen/offscreen.js`、`tests/playback-rate.test.mjs`、`tests/playback-loading.test.mjs`、`tests/helpers/offscreen.mjs`、`docs/ISSUES.md`
