@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
+import { randomUUID } from "node:crypto";
 import { abortablePlayback, throwIfPlaybackAborted, waitForPlaybackEvent } from "../../services/playback-loading.js";
 import { normalizePlaybackRate } from "../../services/playback-rate.js";
 import { playbackScopeKey } from "../../services/playback-checkpoints.js";
@@ -18,6 +19,7 @@ export async function createOffscreenHarness(overrides = {}) {
   const urls = [];
   const context = vm.createContext({
     console, AbortController, DOMException, Blob, Event, setTimeout, clearTimeout,
+    crypto: { randomUUID },
     document: { getElementById: () => audio }, navigator: {},
     AudioContext: class { state = 'running'; destination = {}; createGain() { return { gain: {}, connect() {} }; } createMediaElementSource() { return { connect: () => ({ connect() {} }) }; } },
     URL: { createObjectURL(blob) { const url = `blob:${urls.length}`; urls.push(blob); return url; }, revokeObjectURL() {} },

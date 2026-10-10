@@ -84,6 +84,9 @@ async function initializeStorageUnlocked() {
   if (!stored[STORAGE_KEYS.subscriptions]) {
     changes[STORAGE_KEYS.subscriptions] = {};
   }
+  if (!stored[STORAGE_KEYS.autoCacheJobs]) {
+    changes[STORAGE_KEYS.autoCacheJobs] = {};
+  }
   if (!Array.isArray(stored[STORAGE_KEYS.playlists])) {
     changes[STORAGE_KEYS.playlists] = [];
   }
@@ -108,6 +111,7 @@ export async function getAppState() {
     settings: { ...DEFAULT_SETTINGS, ...(stored[STORAGE_KEYS.settings] ?? {}) },
     updateState: stored[STORAGE_KEYS.updateState] ?? {},
     subscriptions: stored[STORAGE_KEYS.subscriptions] ?? {},
+    autoCacheJobs: stored[STORAGE_KEYS.autoCacheJobs] ?? {},
     playlists: stored[STORAGE_KEYS.playlists] ?? [],
     favoriteSections: normalizeFavoriteSections(stored[STORAGE_KEYS.favoriteSections]),
     playbackCheckpoints: normalizePlaybackCheckpoints(stored[STORAGE_KEYS.playbackCheckpoints])

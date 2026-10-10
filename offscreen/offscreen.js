@@ -17,7 +17,7 @@ import {
 } from "../services/file-store.js";
 import { archiveScope, scopeKeyFromContext } from "../services/cache-records.js";
 import { encodeAudioBufferToMp3, normalizeMp3Bitrate } from "../services/mp3.js";
-import { addCacheHistory, summarizeCacheTask } from "../services/cache-queue-state.js";
+import { addCacheHistory, attachAutoCacheRequest, summarizeCacheTask } from "../services/cache-queue-state.js";
 import { audioStreamCandidates, mediaErrorText, mediaSourceType } from "../services/audio-stream.js";
 import { cachedPlaybackSource, onlinePlaybackSource } from "../services/playback-source.js";
 import { abortablePlayback, throwIfPlaybackAborted, waitForPlaybackEvent } from "../services/playback-loading.js";
@@ -395,6 +395,17 @@ function cacheSnapshot(patch = {}) {
 }
 
 async function reportCache(patch) {
+  const terminal = ["completed", "failed", "skipped"].includes(patch.status) && currentCacheTask;
+  if (terminal) currentCacheTask.finished = true;
+  const summary = summarizeCacheTask(currentCacheTask);
+  patch = {
+    ...patch,
+    rootId: summary?.rootId ?? "",
+    autoCacheRequests: summary?.autoCacheRequests ?? [],
+    autoCacheKeys: summary?.autoCacheKeys ?? [],
+    ...(terminal
+      ? { outcomeId: crypto.randomUUID() } : {})
+  };
   cacheActivity = { ...patch };
   cacheHistory = addCacheHistory(cacheHistory, currentCacheTask, patch);
   await chrome.runtime.sendMessage({
@@ -707,12 +718,14 @@ async function processCacheQueue() {
   if (cacheRunning) return;
   cacheRunning = true;
   try {
-    await withCacheDirectoryOperation(async root => {
+    await withCacheDirectoryOperation(async (root, rootId) => {
       await reportCache({ status: "started" });
       while (cacheQueue.length) {
         const task = cacheQueue.shift();
         currentCacheTask = task;
         try {
+          if (task.rootId && task.rootId !== rootId) throw new Error("缓存目录已经切换，请在目标目录下重新提交任务");
+          task.rootId = rootId;
           await reportCache({ track: task.track, status: "preparing", progress: 0 });
           await downloadTrack(task, async () => root);
         } catch (error) {
@@ -725,6 +738,7 @@ async function processCacheQueue() {
   } catch (error) {
     while (cacheQueue.length) {
       const task = cacheQueue.shift();
+      currentCacheTask = task;
       await reportCache({ track: task.track, status: "failed", message: error.message });
     }
   } finally {
@@ -758,13 +772,14 @@ async function handleCacheCommand(command, payload = {}) {
     });
   }
   if (command === "cacheTracks") {
+    const directory = await getCacheDirectoryInfo();
     const format = payload.format === "mp3" ? "mp3" : "original";
     const bitrate = normalizeMp3Bitrate(payload.bitrate);
     const taskKey = task => {
       const scope = archiveScope(task.section, task.track.creator ?? {});
-      return `${task.track.id}:${scope.key}:${task.format}:${task.format === "mp3" ? task.bitrate : "source"}`;
+      return JSON.stringify([task.rootId, task.track.id, scope.key, task.format, task.format === "mp3" ? task.bitrate : "source"]);
     };
-    const known = new Set([...cacheQueue, currentCacheTask].filter(Boolean).map(taskKey));
+    const known = new Map([...cacheQueue, currentCacheTask].filter(task => task && !task.finished).map(task => [taskKey(task), task]));
     (payload.tracks ?? []).forEach((track, position) => {
       const task = {
         track,
@@ -772,12 +787,16 @@ async function handleCacheCommand(command, payload = {}) {
         position,
         format,
         bitrate,
+        rootId: String(payload.rootId || directory.rootId || ""),
         archiveItems: payload.section?.type === "playlist" ? payload.tracks : null
       };
       const key = taskKey(task);
       if (!known.has(key)) {
+        attachAutoCacheRequest(task, payload.autoCache);
         cacheQueue.push(task);
-        known.add(key);
+        known.set(key, task);
+      } else {
+        attachAutoCacheRequest(known.get(key), payload.autoCache);
       }
     });
     processCacheQueue().catch(error => reportCache({ status: "failed", message: error.message }));

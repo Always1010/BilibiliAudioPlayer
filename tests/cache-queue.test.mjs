@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   CACHE_HISTORY_LIMIT,
+  attachAutoCacheRequest,
   addCacheHistory,
   summarizeCacheTask
 } from "../services/cache-queue-state.js";
@@ -27,6 +28,10 @@ assert.deepEqual(summary.track, {
 assert.deepEqual(summary.section, { id: "10", type: "season", title: "测试合集" });
 assert.equal(summary.format, "mp3");
 assert.equal(summary.bitrate, 192);
+attachAutoCacheRequest(task, { key: "job-1", attemptId: "old" });
+attachAutoCacheRequest(task, { key: "job-2", attemptId: "second" });
+attachAutoCacheRequest(task, { key: "job-1", attemptId: "new" });
+assert.deepEqual(summarizeCacheTask(task).autoCacheRequests, [{ key: "job-2", attemptId: "second" }, { key: "job-1", attemptId: "new" }]);
 
 let history = [];
 history = addCacheHistory(history, task, { status: "downloading" }, 1);

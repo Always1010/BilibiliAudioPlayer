@@ -816,3 +816,13 @@
 - 解决方案：扫描先按作品与物理路径查找已有位置，复用 ID、真实作用域、码率、缓存日期及作品资料，仅刷新大小和验证时间；未知质量仅可由明确文件名标记校准。去重同时检查 recovered: 作用域键。
 - 验证方式：真实 scanner 两轮扫描保持一个实体位置，容量按真实大小刷新，已知与未知码率各自保留；损坏清单降级后继续扫描其他目录。归档扫描、缓存记录及清单测试通过。
 - 相关文件：offscreen/offscreen.js、services/cache-records.js、docs/CACHE.md、tests/archive-scan.test.mjs、tests/cache-records.test.mjs。
+
+### ISSUE-069 自动追更把入队当作完成且失败后无法恢复
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：缓存命令返回失败仍推进已处理列表，下载或编码失败没有持久待办，后台或浏览器重启后任务可能永久漏失。
+- 原因：追更只提交消息，未校验接收结果，没有持久任务与实际终态的关联。
+- 解决方案：新作品先持久保存 autoCacheJobs 再推进发现列表；校验 ok 和 accepted，入队保持待完成。按订阅版本、尝试身份与目标 rootId 匹配完成/跳过/失败事件，历史 outcomeId 去重；失败保留并指数退避，启动及追更检查对照活动/等待/最近任务恢复，取消订阅过滤旧任务。手动与自动相同目标合并时保留所有自动任务身份；过期根任务拒绝执行。
+- 验证方式：真实后台与离屏 VM 测试覆盖拒绝响应、持久保存先于发送、活动去重、重启丢队列恢复、权限失败、根与尝试身份不匹配、历史失败去重、完成先于接收响应、关闭订阅及串行写等待期间新增任务保留。追更分页、订阅并发、缓存队列和播放存储回归通过。
+- 相关文件：background/service-worker.js、offscreen/offscreen.js、services/auto-cache-jobs.js、services/cache-queue-state.js、shared/constants.js、shared/storage.js、docs/CACHE.md、tests/auto-cache-jobs.test.mjs、tests/auto-cache-events.test.mjs 及对应回归辅助文件。

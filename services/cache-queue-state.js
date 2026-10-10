@@ -1,6 +1,12 @@
 export const CACHE_HISTORY_LIMIT = 30;
 const TERMINAL_STATUSES = new Set(["completed", "failed", "skipped"]);
 
+export function attachAutoCacheRequest(task, request) {
+  if (!request?.key || !request.attemptId) return;
+  const next = { key: String(request.key), attemptId: String(request.attemptId) };
+  task.autoCacheRequests = [...(task.autoCacheRequests ?? []).filter(item => item.key !== next.key), next];
+}
+
 export function summarizeCacheTask(task) {
   if (!task) return null;
   return {
@@ -16,7 +22,10 @@ export function summarizeCacheTask(task) {
     } : null,
     format: task.format,
     bitrate: task.bitrate,
-    position: task.position
+    position: task.position,
+    rootId: task.rootId ?? "",
+    autoCacheRequests: (task.autoCacheRequests ?? []).map(request => ({ ...request })),
+    autoCacheKeys: (task.autoCacheRequests ?? []).map(request => request.key)
   };
 }
 
@@ -27,6 +36,7 @@ export function addCacheHistory(history, task, patch, finishedAt = Date.now()) {
     status: patch.status,
     message: patch.message ?? "",
     size: Number(patch.record?.size ?? 0),
+    outcomeId: patch.outcomeId ?? "",
     finishedAt
   }, ...history].slice(0, CACHE_HISTORY_LIMIT);
 }
