@@ -61,9 +61,39 @@ async function useStore(name, mode, operation) {
       const transaction = database.transaction(name, mode);
       const store = transaction.objectStore(name);
       const request = operation(store);
-      request.onsuccess = () => resolve(request.result);
+      let result;
+      request.onsuccess = () => { result = request.result; };
       request.onerror = () => reject(request.error);
+      transaction.oncomplete = () => resolve(result);
       transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error ?? new Error("缓存索引事务已取消"));
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function updateCacheRecord(trackId, updater) {
+  const database = await openDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = database.transaction(RECORD_STORE, "readwrite");
+      const store = transaction.objectStore(RECORD_STORE);
+      let next;
+      const request = store.get(String(trackId));
+      request.onsuccess = () => {
+        try {
+          next = updater(request.result);
+          if (next) store.put(next);
+          else store.delete(String(trackId));
+        } catch (error) {
+          transaction.abort();
+          reject(error);
+        }
+      };
+      transaction.oncomplete = () => resolve(next);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error ?? new Error("缓存索引事务已取消"));
     });
   } finally {
     database.close();
@@ -125,10 +155,7 @@ export async function requireWritableDirectory() {
 }
 
 export async function putCacheRecord(record) {
-  const current = await useStore(RECORD_STORE, "readonly", store => store.get(String(record.trackId)));
-  const next = mergeCacheLocation(current, record);
-  await useStore(RECORD_STORE, "readwrite", store => store.put(next));
-  return next;
+  return updateCacheRecord(record.trackId, current => mergeCacheLocation(current, record));
 }
 
 export async function getCacheRecord(trackId) {
@@ -145,14 +172,7 @@ export function deleteCacheRecord(trackId) {
 }
 
 export async function deleteCacheLocation(trackId, locationId) {
-  const current = await getCacheRecord(trackId);
-  const next = removeCacheLocation(current, locationId);
-  if (!next) {
-    await deleteCacheRecord(trackId);
-    return null;
-  }
-  await useStore(RECORD_STORE, "readwrite", store => store.put(next));
-  return next;
+  return updateCacheRecord(trackId, current => removeCacheLocation(current, locationId));
 }
 
 export async function removeCacheFileAtPath(root, path) {
