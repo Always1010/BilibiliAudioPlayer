@@ -48,8 +48,8 @@ function normalizeLocation(value, fallback = {}) {
 }
 
 function mergePhysicalLocations(left, right) {
-  const leftKnown = left.scope.type !== "recovered";
-  const rightKnown = right.scope.type !== "recovered";
+  const leftKnown = left.scope.type !== "recovered" && !left.scope.key.startsWith("recovered:");
+  const rightKnown = right.scope.type !== "recovered" && !right.scope.key.startsWith("recovered:");
   const preferred = leftKnown !== rightKnown
     ? (leftKnown ? left : right)
     : (right.cachedAt > left.cachedAt ? right : left);

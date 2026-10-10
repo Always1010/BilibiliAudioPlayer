@@ -806,3 +806,13 @@
 - 解决方案：新 MP3 文件名包含码率标记，扫描识别该标记；索引按根目录与物理路径去重，保留可靠归档作用域。旧冲突码率降级为未知，使用物理位置 ID 保留原文件管理入口，新指定码率生成独立文件；UI 明确显示未知码率。
 - 验证方式：真实 downloadTrack 的 192/320 本地复制路径生成不同名称并保留两个内容；旧重复物理路径压为一个位置，容量与作用域正确，未知副本不满足指定码率匹配，新明确码率不覆盖旧未知索引。缓存记录、文件名、清单、根隔离和真实 UI 测试通过。
 - 相关文件：offscreen/offscreen.js、services/archive-manifest.js、services/cache-records.js、ui/app.js、docs/CACHE.md、tests/cache-filenames.test.mjs、tests/cache-records.test.mjs、tests/archive-manifest.test.mjs、tests/ui-cache-root.test.mjs。
+
+### ISSUE-068 重复扫描为同一实体文件新增恢复位置
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：已缓存合集或系列扫描后出现额外恢复位置，容量重复计算，原作用域及质量信息可能丢失。
+- 原因：扫描按恢复 ID 创建记录，没有先匹配当前根中的物理路径；恢复作用域的类型不能可靠区分真实归档归属。
+- 解决方案：扫描先按作品与物理路径查找已有位置，复用 ID、真实作用域、码率、缓存日期及作品资料，仅刷新大小和验证时间；未知质量仅可由明确文件名标记校准。去重同时检查 recovered: 作用域键。
+- 验证方式：真实 scanner 两轮扫描保持一个实体位置，容量按真实大小刷新，已知与未知码率各自保留；损坏清单降级后继续扫描其他目录。归档扫描、缓存记录及清单测试通过。
+- 相关文件：offscreen/offscreen.js、services/cache-records.js、docs/CACHE.md、tests/archive-scan.test.mjs、tests/cache-records.test.mjs。

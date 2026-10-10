@@ -65,7 +65,7 @@ const overwritten = normalizeCacheRecord({ trackId: "BVOVERWRITTEN", rootId: "ro
   { id: "season:10:mp3:320", path: sharedPath, format: "mp3", bitrate: 320, size: 200, cachedAt: 20,
     scope: { key: "season:10", type: "season", id: "10", title: "原合集" } },
   { id: "recovered:作品.mp3", path: sharedPath, format: "mp3", size: 200, cachedAt: 30, verifiedAt: 40,
-    scope: { key: "recovered:目录", type: "recovered", id: "", title: "恢复目录" } }
+    scope: { key: "recovered:目录", type: "season", id: "", title: "恢复目录" } }
 ] });
 assert.equal(overwritten.locations.length, 1, "一条物理路径不能计作三个实体副本");
 assert.equal(cacheRecordBytes(overwritten), 200);

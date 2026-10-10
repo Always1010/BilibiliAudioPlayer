@@ -516,29 +516,35 @@ async function scanArchiveDirectory(directory, path, summary) {
       const file = await handle.getFile();
       if (!file.size) continue;
       const item = manifestItems.get(name) ?? {};
-      const scope = manifest?.scope?.key ? manifest.scope : recoveredArchiveScope(path);
+      const physicalPath = [...path, name];
+      const existing = await getCacheRecord(parsed.bvid);
+      const previous = existing?.locations.find(location => JSON.stringify(location.path) === JSON.stringify(physicalPath));
+      const scope = previous?.scope ?? (manifest?.scope?.key ? manifest.scope : recoveredArchiveScope(path));
       const creator = item.creatorId || item.creatorName
         ? { id: String(item.creatorId || ""), name: String(item.creatorName || "") }
+        : existing?.creator ?? null;
+      const bitrate = parsed.format === "mp3"
+        ? parsed.bitrate ?? (previous ? previous.bitrate : Number(item.bitrate) || null)
         : null;
-      const bitrate = parsed.format === "mp3" ? parsed.bitrate || Number(item.bitrate) || null : null;
       const location = {
-        id: manifest?.scope?.key
+        ...previous,
+        id: previous?.id ?? (manifest?.scope?.key
           ? `${scope.key}:${parsed.format}:${parsed.format === "mp3" ? bitrate ?? "unknown" : "source"}`
-          : `recovered:${[...path, name].join("/")}`,
+          : `recovered:${physicalPath.join("/")}`),
         scope,
-        path: [...path, name],
+        path: physicalPath,
         format: parsed.format,
         bitrate,
         mimeType: parsed.format === "mp3" ? "audio/mpeg" : parsed.extension === "webm" ? "audio/webm" : "audio/mp4",
-        codec: parsed.format === "mp3" ? "mp3" : "",
+        codec: parsed.format === "mp3" ? "mp3" : previous?.codec ?? "",
         size: file.size,
-        cachedAt: Number(file.lastModified) || Date.now(),
+        cachedAt: previous?.cachedAt || Number(file.lastModified) || Date.now(),
         verifiedAt: Date.now()
       };
       await putCacheRecord({
         trackId: parsed.bvid,
         bvid: parsed.bvid,
-        title: item.title || parsed.title,
+        title: item.title || existing?.title || parsed.title,
         creator,
         locations: [location]
       });
