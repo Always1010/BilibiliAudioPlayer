@@ -735,3 +735,13 @@
 - 解决方案：完成标记作为会话状态持续保留，自动循环和暂停更新实际位置但不清除；用户主动建立新播放队列或清空时开始新一轮。会话存档保留完成字段，并明确全局恢复与集合重新播放的区别。
 - 验证方式：检查点、播放存储和加载测试通过，覆盖两轮自动转曲、暂停保留完成、主动重播清除及存储恢复；相关语法及 git diff --check 通过。
 - 相关文件：`offscreen/offscreen.js`、`shared/storage.js`、`docs/PLAYBACK.md`、`tests/playback-checkpoints.test.mjs`、`tests/playback-storage.test.mjs`、`tests/helpers/offscreen.mjs`、`docs/ISSUES.md`
+
+## ISSUE-061：损坏归档清单使整个扫描中断
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：清单是合法 JSON 但 items 不是数组或含空成员时，扫描过滤或映射抛出异常，其他正常归档也无法恢复。
+- 原因：清单解析仅检查 schema 和版本，没有验证作用域、成员结构和文件名。
+- 解决方案：验证作用域、作品数组、BV 号、字段类型与数值范围，文件名限定单层路径；无效清单返回 null，沿原有文件名恢复路径降级。
+- 验证方式：归档清单测试覆盖对象形状、null/字符串成员、非法文件名、缺失作用域及正常清单兼容，相关语法和 git diff --check 通过。
+- 相关文件：`services/archive-manifest.js`、`tests/archive-manifest.test.mjs`、`docs/ISSUES.md`
