@@ -796,3 +796,13 @@
 - 验证方式：125 首完整基线、一次新增 12 首、合集第 2 页末尾新增、接口概览失败、关闭期间迟到基线、残缺分页重试及旧基线升级测试通过；订阅并发回归通过。
 - 相关文件：background/service-worker.js、services/subscriptions.js、tests/subscription-pagination.test.mjs、tests/helpers/background-harness.mjs。
 - 升级行为：已有追更订阅首次检查会重新建立完整基线，该次检测到的差异作为历史基线处理；此后完整分页识别新增。
+
+### ISSUE-067 不同 MP3 码率覆盖实体文件并重复计算副本
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：同一作品缓存 192 与 320 kbps 时实体文件名相同，后者覆盖前者，索引却显示两个副本并重复计算容量；扫描还可能叠加恢复位置。
+- 原因：文件名不包含码率，位置只按逻辑 ID 去重，未校验物理路径是否相同。
+- 解决方案：新 MP3 文件名包含码率标记，扫描识别该标记；索引按根目录与物理路径去重，保留可靠归档作用域。旧冲突码率降级为未知，使用物理位置 ID 保留原文件管理入口，新指定码率生成独立文件；UI 明确显示未知码率。
+- 验证方式：真实 downloadTrack 的 192/320 本地复制路径生成不同名称并保留两个内容；旧重复物理路径压为一个位置，容量与作用域正确，未知副本不满足指定码率匹配，新明确码率不覆盖旧未知索引。缓存记录、文件名、清单、根隔离和真实 UI 测试通过。
+- 相关文件：offscreen/offscreen.js、services/archive-manifest.js、services/cache-records.js、ui/app.js、docs/CACHE.md、tests/cache-filenames.test.mjs、tests/cache-records.test.mjs、tests/archive-manifest.test.mjs、tests/ui-cache-root.test.mjs。

@@ -86,13 +86,16 @@ export function removeArchiveManifestFiles(manifest, removals, now = Date.now())
 }
 
 export function parseArchiveAudioFilename(filename) {
-  const match = String(filename).match(/^(?:\d+\s*-\s*)?(.*?)\s*\[(BV[0-9A-Za-z]{6,30})\]\.(mp3|m4a|webm)$/i);
+  const match = String(filename).match(/^(?:\d+\s*-\s*)?(.*?)\s*\[(BV[0-9A-Za-z]{6,30})\](?:\s*\[(\d+)kbps\])?\.(mp3|m4a|webm)$/i);
   if (!match) return null;
+  const extension = match[4].toLowerCase();
+  if (match[3] && (extension !== "mp3" || Number(match[3]) <= 0)) return null;
   return {
     title: match[1].trim() || match[2],
     bvid: match[2],
-    extension: match[3].toLowerCase(),
-    format: match[3].toLowerCase() === "mp3" ? "mp3" : "original"
+    extension,
+    format: extension === "mp3" ? "mp3" : "original",
+    ...(match[3] ? { bitrate: Number(match[3]) } : {})
   };
 }
 

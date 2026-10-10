@@ -47,6 +47,28 @@ function normalizeLocation(value, fallback = {}) {
   };
 }
 
+function mergePhysicalLocations(left, right) {
+  const leftKnown = left.scope.type !== "recovered";
+  const rightKnown = right.scope.type !== "recovered";
+  const preferred = leftKnown !== rightKnown
+    ? (leftKnown ? left : right)
+    : (right.cachedAt > left.cachedAt ? right : left);
+  const verified = right.verifiedAt > left.verifiedAt
+    || (right.verifiedAt === left.verifiedAt && right.cachedAt > left.cachedAt) ? right : left;
+  const ambiguousBitrate = preferred.format === "mp3"
+    && (left.format !== right.format || left.bitrate !== right.bitrate);
+  return {
+    ...preferred,
+    // Two quality claims for one physical MP3 cannot prove its actual bitrate.
+    // Keep it under a physical identity so a new known-quality archive cannot
+    // replace this legacy path just because it shares the old logical ID.
+    id: ambiguousBitrate ? `physical:${preferred.rootId}:${JSON.stringify(preferred.path)}` : preferred.id,
+    bitrate: ambiguousBitrate ? null : preferred.bitrate,
+    size: verified.size,
+    verifiedAt: Math.max(left.verifiedAt, right.verifiedAt)
+  };
+}
+
 export function normalizeCacheRecord(value) {
   if (!value) return null;
   const trackId = text(value.trackId ?? value.bvid);
@@ -54,11 +76,19 @@ export function normalizeCacheRecord(value) {
   const sourceLocations = Array.isArray(value.locations) ? value.locations : [value];
   const locations = [];
   const ids = new Set();
+  const physicalPaths = new Map();
   for (const source of sourceLocations) {
     const location = normalizeLocation(source, value);
     if (!location || ids.has(location.id)) continue;
     ids.add(location.id);
-    locations.push(location);
+    const physicalKey = `${location.rootId}\u0000${JSON.stringify(location.path)}`;
+    if (physicalPaths.has(physicalKey)) {
+      const index = physicalPaths.get(physicalKey);
+      locations[index] = mergePhysicalLocations(locations[index], location);
+    } else {
+      physicalPaths.set(physicalKey, locations.length);
+      locations.push(location);
+    }
   }
   const primary = locations[0] ?? {};
   return {
