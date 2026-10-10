@@ -71,7 +71,7 @@ function publicPlayerState(patch = {}) {
     loading: Boolean(state.loading),
     source: state.source ?? null,
     volume: state.volume,
-    playbackRate: audio.playbackRate,
+    playbackRate: state.playbackRate,
     mode: state.mode,
     error: null,
     checkpointCompleted: Boolean(patch.checkpointCompleted),
@@ -83,6 +83,12 @@ function applyVolume(value) {
   state.volume = normalizePlaybackVolume(value, state.volume);
   audio.volume = 1;
   volumeGain.gain.value = state.volume;
+}
+
+function applyPlaybackRate(value) {
+  state.playbackRate = normalizePlaybackRate(value, state.playbackRate);
+  audio.defaultPlaybackRate = state.playbackRate;
+  audio.playbackRate = state.playbackRate;
 }
 
 async function ensureAudioContextRunning() {
@@ -346,6 +352,7 @@ async function loadAndPlay(index, resumeAt = 0) {
     }
     assertCurrentLoad(load);
     applyVolume(state.volume);
+    applyPlaybackRate(state.playbackRate);
     updateMediaSession(track);
     if (desiredPlaying) {
       await ensureAudioContextRunning();
@@ -787,7 +794,7 @@ async function handleCommand(command, payload = {}) {
       state = { ...state, ...payload.player };
       hydrated = true;
       applyVolume(state.volume);
-      audio.playbackRate = normalizePlaybackRate(state.playbackRate);
+      applyPlaybackRate(state.playbackRate);
       return state;
     case "status":
       return { ...publicPlayerState(), hydrated };
@@ -881,7 +888,7 @@ async function handleCommand(command, payload = {}) {
       applyVolume(payload.volume);
       break;
     case "rate":
-      audio.playbackRate = normalizePlaybackRate(payload.rate, state.playbackRate);
+      applyPlaybackRate(payload.rate);
       break;
     case "mode":
       state.mode = payload.mode;

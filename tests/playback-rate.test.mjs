@@ -21,3 +21,22 @@ assert.equal(playbackRateLabel(1), "1×");
 assert.equal(playbackRateLabel(1.26), "1.3×");
 
 console.log("播放倍速：范围、0.1 档位、预设和显示文案通过");
+
+const { createOffscreenHarness } = await import("./helpers/offscreen.mjs");
+const { audio, pending, run, flush } = await createOffscreenHarness();
+await run('handleCommand("hydrate", {player:{playbackRate:1.75}})');
+assert.equal(audio.defaultPlaybackRate, 1.8);
+const loading = run('handleCommand("playQueue", {queue:[{id:"A"},{id:"B"}]})');
+await flush();
+await run('handleCommand("rate", {rate:2.5})');
+pending.get('A')({ ok: true, data: { url: 'https://cdn/A' } });
+await loading;
+assert.equal(audio.playbackRate, 2.5);
+assert.equal(audio.defaultPlaybackRate, 2.5);
+assert.equal(run('state.playbackRate'), 2.5);
+const next = run('handleCommand("playIndex", {index:1})');
+await flush();
+pending.get('B')({ ok: true, data: { url: 'https://cdn/B' } });
+await next;
+assert.equal(audio.playbackRate, 2.5, 'media load reset must not overwrite the preferred rate');
+console.log("播放倍速：恢复设置、加载期间修改和切歌后保持通过");
