@@ -19,6 +19,7 @@ import { playbackModeLabel } from "../services/playback-mode.js";
 import { PLAYBACK_RATE_MAX, PLAYBACK_RATE_MIN, PLAYBACK_RATE_STEP, normalizePlaybackRate, playbackRateLabel } from "../services/playback-rate.js";
 import { PLAYBACK_VOLUME_MAX, PLAYBACK_VOLUME_MIN, normalizePlaybackVolume, playbackVolumePercent } from "../services/playback-volume.js";
 import { playerStructureKey } from "../services/player-render-policy.js";
+import { updateTrackPlayback } from "./track-playback.js";
 import { isFavoriteSection } from "../services/favorite-sections.js";
 import { normalizeTrackSortDirection, sortTracksByPublishedAt } from "../services/track-order.js";
 import {
@@ -240,13 +241,12 @@ function trackSortLabel() {
 function trackRows(items, section, limit = null) {
   const visibleItems = sortTracksByPublishedAt(items, currentTrackSortDirection());
   const visible = limit ? visibleItems.slice(0, limit) : visibleItems;
-  const currentId = ui.app?.player?.currentTrack?.id;
   const cached = new Set((ui.cacheInfo?.records ?? []).map(record => String(record.trackId)));
-  return visible.map((track, index) => `<div class="track-row ${track.id === currentId ? "playing" : ""}">
-    <span class="track-index">${track.id === currentId && ui.app.player.playing ? "♫" : String(index + 1).padStart(2, "0")}</span>
+  return visible.map((track, index) => `<div class="track-row" data-track-id="${escapeHtml(track.id)}" data-track-number="${String(index + 1).padStart(2, "0")}">
+    <span class="track-index">${String(index + 1).padStart(2, "0")}</span>
     <div><div class="track-title">${escapeHtml(track.title)}</div><div class="track-subtitle">${track.bvid ? escapeHtml(track.bvid) : "视频作品"}${track.publishedAt ? ` · ${formatDate(track.publishedAt)}` : ""}</div></div>
     <span class="track-duration">${formatDuration(track.duration)}</span>
-    <div class="track-actions"><button class="icon-button" type="button" data-action="play-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="播放 ${escapeHtml(track.title)}">${symbol(track.id === currentId && ui.app.player.playing ? "Ⅱ" : "▶")}</button><button class="icon-button" type="button" data-action="enqueue-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="添加到当前播放队列">${symbol("+")}</button><button class="icon-button" type="button" data-action="add-track-to-playlist" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="添加到我的播放列表">${symbol("☆")}</button><button class="icon-button ${cached.has(String(track.id)) ? "cached" : ""}" type="button" data-action="cache-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="${cached.has(String(track.id)) ? "已缓存" : "缓存"}">${symbol(cached.has(String(track.id)) ? "✓" : "⇩")}</button></div>
+    <div class="track-actions"><button class="icon-button" type="button" data-action="play-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="播放 ${escapeHtml(track.title)}">${symbol("▶")}</button><button class="icon-button" type="button" data-action="enqueue-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="添加到当前播放队列">${symbol("+")}</button><button class="icon-button" type="button" data-action="add-track-to-playlist" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="添加到我的播放列表">${symbol("☆")}</button><button class="icon-button ${cached.has(String(track.id)) ? "cached" : ""}" type="button" data-action="cache-track" data-track-id="${escapeHtml(track.id)}" data-section-key="${escapeHtml(section.key)}" aria-label="${cached.has(String(track.id)) ? "已缓存" : "缓存"}">${symbol(cached.has(String(track.id)) ? "✓" : "⇩")}</button></div>
   </div>`).join("");
 }
 
@@ -752,6 +752,7 @@ function directoryPermissionPromptMarkup() {
 function render() {
   root.innerHTML = `<div class="shell"><div class="cache-toast-host">${cacheToastMarkup()}</div>${topbar()}<div class="workspace">${sidebar()}<main class="content">${mainContent()}</main></div><div class="player-slot">${playerAreaMarkup()}</div>${playlistPickerMarkup()}${playlistImportPreviewMarkup()}${directoryPermissionPromptMarkup()}</div>`;
   renderedPlayerKey = playerStructureKey(ui.app?.player, { queueOpen: ui.queueOpen });
+  updateTrackPlayback(root, ui.app?.player);
   applyIconTooltips(root);
   applyCacheSelectionStates(root);
 }
@@ -777,6 +778,7 @@ function renderPlayer({ force = false } = {}) {
       updatePlayerProgress(slot);
       return;
     }
+    updateTrackPlayback(root, ui.app?.player);
     const previousQueue = slot.querySelector(".play-queue-list");
     const scrollTop = previousQueue ? previousQueue.scrollTop : null;
     slot.innerHTML = playerAreaMarkup();
