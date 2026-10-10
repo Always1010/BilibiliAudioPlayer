@@ -97,4 +97,25 @@ assert.equal(app.ui.trackSearchKeyword, "latest");
 assert.equal(app.ui.detailData.items.length, 2);
 assert.equal(app.ui.error, "");
 assert.equal(app.ui.loading, false);
+
+// 关注操作的旧快照不能覆盖后续导航/其他界面同步得到的最新关注列表。
+app.ui.searchResults = [{ id: "c", name: "C" }];
+const adding = app.click({ action: "add-creator", id: "c" });
+await app.click({ action: "show-playlists" });
+const latestCreators = [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "d", name: "D" }];
+app.ui.app.creators = latestCreators;
+complete(pending[11], { creator: { id: "c", name: "C" }, creators: [{ id: "a" }, { id: "b" }, { id: "c" }] });
+await adding;
+assert.equal(app.ui.app.creators, latestCreators);
+assert.equal(app.ui.app.settings.activeCreatorId, "b");
+
+app.ui.app.settings.activeCreatorId = "a";
+const removing = app.click({ action: "remove-creator" });
+await app.click({ action: "show-playlists" });
+const afterRemoval = [{ id: "b", name: "B" }, { id: "d", name: "D" }];
+app.ui.app.creators = afterRemoval;
+complete(pending[12], [{ id: "b", name: "B" }]);
+await removing;
+assert.equal(app.ui.app.creators, afterRemoval);
+assert.equal(app.ui.view, "playlists");
 console.log("真实 UI 异步上下文：UP/栏目/搜索反序响应、旧分页错误、缓存归属与离页取消播放通过");
