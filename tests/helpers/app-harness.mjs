@@ -6,6 +6,7 @@ import { normalizeTrackSortDirection, sortTracksByPublishedAt } from "../../serv
 import * as cacheLibrary from "../../services/cache-library.js";
 import * as cacheRecords from "../../services/cache-records.js";
 import * as utils from "../../shared/utils.js";
+import { playlistItemToTrack } from "../../services/playlists.js";
 
 // 执行真实 UI 函数和事件处理器，只替换浏览器消息、DOM 渲染和启动入口。
 export async function appHarness(sendMessage) {
@@ -15,6 +16,7 @@ export async function appHarness(sendMessage) {
   const context = vm.createContext({
     document, window: { confirm: () => true }, console, setTimeout, clearTimeout, MESSAGE, loadAllSectionPages,
     ...cacheLibrary, ...cacheRecords, ...utils,
+    playlistItemToTrack,
     normalizeTrackSortDirection, sortTracksByPublishedAt,
     toErrorMessage: error => error.message,
     chrome: { runtime: { sendMessage, onMessage: { addListener() {} } } }

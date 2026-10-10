@@ -38,6 +38,13 @@ let pageGeneration = 0;
 let creatorRequest = 0;
 let searchRequest = 0;
 let detailRequest = 0;
+let playbackRequest = 0;
+const playbackIntentCommands = new Set(["playQueue", "playIndex", "pause", "resume", "next", "previous", "clearQueue", "removeQueueItem"]);
+
+function beginPlaybackRequest() {
+  const request = ++playbackRequest;
+  return () => { if (request !== playbackRequest) throw supersededRequest(); };
+}
 
 function supersededRequest() {
   return Object.assign(new Error("页面请求已被新的操作取代"), { code: "STALE_UI_REQUEST" });
@@ -1102,7 +1109,7 @@ async function loadMoreDetail() {
   }
 }
 
-async function loadCompleteSection(section) {
+async function loadCompleteSection(section, assertPlaybackRequest = () => {}) {
   if (!section) throw new Error("未找到要播放的栏目");
   section = sectionWithCreator(section);
   const scope = detailRequestScope(section);
@@ -1117,6 +1124,7 @@ async function loadCompleteSection(section) {
     const result = await loadAllSectionPages(
       (page, size) => {
         scope.assertCurrent();
+        assertPlaybackRequest();
         return send(MESSAGE.loadSection, {
           creatorId: creator.id,
           section: { id: section.id, type: section.type },
@@ -1128,12 +1136,14 @@ async function loadCompleteSection(section) {
         pageSize,
         onProgress: ({ items, total }) => {
           scope.assertCurrent();
+          assertPlaybackRequest();
           ui.notice = `正在读取“${section.title}”：${Math.min(items.length, total)} / ${total}`;
           render();
         }
       }
     );
     scope.assertCurrent();
+    assertPlaybackRequest();
     if (ui.activeSection?.key === section.key) {
       ui.detailData = { items: result.items, total: result.total, page: result.page, pageSize };
       ui.detailPage = result.page;
@@ -1153,11 +1163,13 @@ function queueForSection(section, items = section.items ?? [], order = currentTr
 }
 
 async function playSectionFromCheckpoint(section) {
+  const assertPlaybackRequest = beginPlaybackRequest();
   section = sectionWithCreator(section);
   const order = currentTrackSortDirection();
   const checkpoint = playbackCheckpointForSection(section);
   if (!checkpoint) {
-    const items = await loadCompleteSection(section);
+    const items = await loadCompleteSection(section, assertPlaybackRequest);
+    assertPlaybackRequest();
     await playerCommand("playQueue", {
       queue: queueForSection(section, items, order),
       index: 0,
@@ -1165,7 +1177,8 @@ async function playSectionFromCheckpoint(section) {
     });
     return;
   }
-  const items = await loadCompleteSection(section);
+  const items = await loadCompleteSection(section, assertPlaybackRequest);
+  assertPlaybackRequest();
   const queue = queueForSection(section, items, checkpoint.order);
   const resolved = resolvePlaybackCheckpoint(checkpoint, queue);
   if (!resolved) throw new Error("当前栏目没有可继续播放的作品");
@@ -1200,6 +1213,8 @@ async function playPlaylistFromCheckpoint(playlist) {
 }
 
 async function playerCommand(command, payload = {}) {
+  // 尚在分页构建的队列也属于播放请求；更新用户意图立即使它失效。
+  if (playbackIntentCommands.has(command)) playbackRequest += 1;
   try {
     const player = await send(MESSAGE.playerCommand, { command, payload });
     applyPlayerState(player);
@@ -1785,11 +1800,13 @@ root.addEventListener("click", async event => {
     }
     else if (action === "open-favorite-section") await openFavoriteSection(button.dataset.key);
     else if (action === "play-favorite-section") {
+      const assertPlaybackRequest = beginPlaybackRequest();
       const favorite = (ui.app.favoriteSections ?? []).find(item => item.key === button.dataset.key);
       if (!favorite) throw new Error("收藏的栏目不存在");
       const section = favoriteSectionToSection(favorite);
       const order = currentTrackSortDirection();
-      const items = await loadCompleteSection(section);
+      const items = await loadCompleteSection(section, assertPlaybackRequest);
+      assertPlaybackRequest();
       await playerCommand("playQueue", { queue: queueForSection(section, items, order), index: 0, queueContext: queueContextForSection(section, order) });
     }
     else if (action === "resume-favorite-section") {
@@ -1848,18 +1865,22 @@ root.addEventListener("click", async event => {
       await loadActiveCreator();
     }
     else if (action === "play-section") {
+      const assertPlaybackRequest = beginPlaybackRequest();
       const section = findSection(button.dataset.key);
       const order = currentTrackSortDirection();
-      const items = await loadCompleteSection(section);
+      const items = await loadCompleteSection(section, assertPlaybackRequest);
+      assertPlaybackRequest();
       await playerCommand("playQueue", { queue: queueForSection(section, items, order), index: 0, queueContext: queueContextForSection(section, order) });
     }
     else if (action === "resume-section") {
       await playSectionFromCheckpoint(findSection(button.dataset.key));
     }
     else if (action === "play-detail") {
+      const assertPlaybackRequest = beginPlaybackRequest();
       const section = sectionWithCreator(ui.activeSection);
       const order = currentTrackSortDirection();
-      const items = await loadCompleteSection(section);
+      const items = await loadCompleteSection(section, assertPlaybackRequest);
+      assertPlaybackRequest();
       await playerCommand("playQueue", { queue: queueForSection(section, items, order), index: 0, queueContext: queueContextForSection(section, order) });
     }
     else if (action === "resume-detail") {
@@ -1882,13 +1903,15 @@ root.addEventListener("click", async event => {
         await playerCommand(player.playing ? "pause" : "resume");
         return;
       }
+      const assertPlaybackRequest = beginPlaybackRequest();
       const section = findSection(button.dataset.sectionKey) ?? ui.activeSection;
       const order = currentTrackSortDirection();
       let items = ui.view === "detail" ? ui.detailData?.items ?? [] : section.items ?? [];
       const total = Number(ui.view === "detail" ? ui.detailData?.total ?? section.total : section.total) || items.length;
       if (items.length < total) {
-        items = await loadCompleteSection(section);
+        items = await loadCompleteSection(section, assertPlaybackRequest);
       }
+      assertPlaybackRequest();
       const queue = queueForSection(section, items, order);
       const index = queue.findIndex(track => String(track.id) === String(button.dataset.trackId));
       if (index < 0) throw new Error("所选作品已不在当前栏目，请刷新后重试");
