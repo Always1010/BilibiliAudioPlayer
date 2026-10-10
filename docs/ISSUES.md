@@ -765,3 +765,5 @@
 - 解决方案：IndexedDB v2 以 rootId 与作品 ID 建立组合索引，按目录句柄身份复用 rootId；历史无根索引保留待扫描，不参与读取或删除。缓存、扫描、删除与读取使用 Web Locks，切换目录要求独占锁。删除请求携带原 rootId，迟到媒体错误只清理原根索引，句柄加载用代次拒绝过期回写。
 - 验证方式：缓存根目录、索引事务、文件存储、真实 UI 根目录与播放加载回归测试通过；验证 A/B 同路径隔离、切回保留、过期删除拒绝、忙时切换拒绝、旧索引保留与迟到句柄失效。
 - 相关文件：services/file-store.js、services/cache-records.js、services/cache-library.js、offscreen/offscreen.js、ui/app.js、docs/CACHE.md、tests/cache-root.test.mjs、tests/ui-cache-root.test.mjs 及对应测试辅助文件。
+
+- ISSUE-056 补充验证（2026-10-10）：媒体流读取返回、SourceBuffer 追加与缓冲等待均检查取消信号，已取消任务立即终止；恢复定位超时保留 RESUME_SEEK_FAILED 类型，避免误删仍可使用的本地缓存。播放加载与倍速回归测试通过。

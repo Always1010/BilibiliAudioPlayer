@@ -5,7 +5,7 @@ import { normalizePlaybackRate } from "../../services/playback-rate.js";
 import { playbackScopeKey } from "../../services/playback-checkpoints.js";
 import { MESSAGE, DEFAULT_PLAYER } from "../../shared/constants.js";
 
-export async function createOffscreenHarness() {
+export async function createOffscreenHarness(overrides = {}) {
   const pending = new Map();
   class Audio extends EventTarget {
     constructor() { super(); this.paused = true; this.src = ''; this.currentTime = 0; this.duration = 120; this.playbackRate = 1; this.loads = []; }
@@ -34,6 +34,7 @@ export async function createOffscreenHarness() {
     playbackProgressReportPolicy: () => ({ shouldReport: false }),
     insertQueueItems: () => [], removeQueueItem(queue, index, current) { return { queue: queue.filter((_, i) => i !== index), currentIndex: 0, removedCurrent: index === current }; }, reorderQueue: () => ({}),
     PLAYBACK_RESUME_END_THRESHOLD: 5, playbackScopeKey,
+    ...overrides,
   });
   let source = await readFile(new URL('../../offscreen/offscreen.js', import.meta.url), 'utf8');
   source = source.replace(/^import\s[\s\S]*?;\r?\n/gm, '');

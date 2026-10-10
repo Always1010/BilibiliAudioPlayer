@@ -163,8 +163,13 @@ async function seekToResumePosition(label, resumeAt, load, signal) {
   }
   if (Math.abs(audio.currentTime - target) <= 2 && !audio.seeking) return;
 
-  await waitForPlaybackEvent(audio, "seeked", signal,
-    () => resumeSeekError(label, mediaErrorText(audio.error)));
+  try {
+    await waitForPlaybackEvent(audio, "seeked", signal,
+      () => resumeSeekError(label, mediaErrorText(audio.error)));
+  } catch (error) {
+    if (error.name === "AbortError" || error.code === "RESUME_SEEK_FAILED") throw error;
+    throw resumeSeekError(label, error.message);
+  }
   assertCurrentLoad(load);
 
   if (Math.abs(audio.currentTime - target) > 2) {
@@ -199,6 +204,7 @@ async function fetchStreamResponse(stream, signal) {
 }
 
 function appendToSourceBuffer(sourceBuffer, value, signal) {
+  throwIfPlaybackAborted(signal);
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       sourceBuffer.removeEventListener("updateend", updated);
@@ -221,6 +227,7 @@ function appendToSourceBuffer(sourceBuffer, value, signal) {
 }
 
 async function waitForBufferSpace(sourceBuffer, signal) {
+  throwIfPlaybackAborted(signal);
   while (sourceBuffer.buffered.length
     && sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1) - audio.currentTime > 120) {
     await new Promise((resolve, reject) => {
@@ -237,6 +244,7 @@ async function waitForBufferSpace(sourceBuffer, signal) {
       timer = setTimeout(done, 1000);
       signal.addEventListener("abort", aborted, { once: true });
     });
+    throwIfPlaybackAborted(signal);
   }
 }
 
@@ -263,6 +271,7 @@ function startMediaSourceStream(stream, load) {
     const reader = response.body.getReader();
     while (true) {
       const { done, value } = await reader.read();
+      throwIfPlaybackAborted(controller.signal);
       if (done) break;
       await appendToSourceBuffer(sourceBuffer, value, controller.signal);
       await waitForBufferSpace(sourceBuffer, controller.signal);
