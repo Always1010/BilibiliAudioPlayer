@@ -1,3 +1,5 @@
+import { loadAllSectionPages } from "./section-pagination.js";
+
 // Legacy subscriptions have no revision. Include their creation time and
 // configuration so a check can still safely merge without overwriting edits.
 export function subscriptionRevision(subscription) {
@@ -21,4 +23,10 @@ export function mergeSubscriptionCheckResults(subscriptions, updates) {
     }
   }
   return next;
+}
+
+export function loadSubscriptionVideos(subscription, loadPage) {
+  return loadAllSectionPages((page, pageSize) => loadPage({
+    creatorId: subscription.creatorId, section: subscription.section, page, pageSize
+  }), { pageSize: subscription.section.type === "all" ? 50 : 100 });
 }

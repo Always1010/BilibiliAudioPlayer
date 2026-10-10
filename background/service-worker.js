@@ -38,7 +38,7 @@ import {
   removeFavoriteSection
 } from "../services/favorite-sections.js";
 import { actionLaunchConfiguration } from "../services/action-launch.js";
-import { mergeSubscriptionCheckResults, subscriptionIsCurrent } from "../services/subscriptions.js";
+import { loadSubscriptionVideos, mergeSubscriptionCheckResults, subscriptionIsCurrent } from "../services/subscriptions.js";
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 let creatingOffscreen = null;
@@ -256,60 +256,59 @@ async function checkCreators() {
         newCount: newItems.length,
         newItems
       };
-
-      const creatorSubscriptions = Object.entries(state.subscriptions)
-        .filter(([, subscription]) => String(subscription.creatorId) === String(creator.id) && subscription.enabled);
-      for (const [key, subscription] of creatorSubscriptions) {
-        try {
-          const listing = subscription.section.type === "all"
-            ? latest
-            : await listContainerVideos(creator.id, subscription.section.type, subscription.section.id, 1, 30);
-          const known = new Set(subscription.lastSeenIds ?? []);
-          const newItems = listing.items.filter(item => !known.has(String(item.id)));
-          let accepted = newItems.length === 0;
-          if (newItems.length && subscription.mode === "download") {
-            await ensureOffscreenDocument();
-            const status = await chrome.runtime.sendMessage({
-              type: MESSAGE.cacheCommand,
-              command: "status",
-              target: "offscreen"
-            });
-            if (status?.ok && status.data?.directory?.permission === "granted") {
-              if (!subscriptionIsCurrent((await getAppState()).subscriptions[key], subscription)) continue;
-              const tracks = newItems.map(track => ({
-                ...track,
-                creator: { id: creator.id, name: creator.name },
-                sectionTitle: subscription.section.title
-              }));
-              await chrome.runtime.sendMessage({
-                type: MESSAGE.cacheCommand,
-                command: "cacheTracks",
-                payload: {
-                  tracks,
-                  section: subscription.section,
-                  format: state.settings.defaultFormat,
-                  bitrate: state.settings.mp3Bitrate
-                },
-                target: "offscreen"
-              });
-              accepted = true;
-            }
-          }
-          subscriptionUpdates[key] = { subscription, patch: {
-            lastCheckedAt: Date.now(),
-            lastError: accepted ? null : "缓存目录不可用，新作品已保留待下次检查",
-            lastSeenIds: accepted ? listing.items.map(item => String(item.id)) : subscription.lastSeenIds
-          } };
-        } catch (error) {
-          subscriptionUpdates[key] = { subscription, patch: { lastCheckedAt: Date.now(), lastError: toErrorMessage(error) } };
-        }
-      }
     } catch (error) {
       results[creator.id] = {
-        checkedAt: Date.now(),
-        newCount: 0,
-        error: toErrorMessage(error)
+        checkedAt: Date.now(), newCount: 0, error: toErrorMessage(error)
       };
+    }
+    const creatorSubscriptions = Object.entries(state.subscriptions)
+      .filter(([, subscription]) => String(subscription.creatorId) === String(creator.id) && subscription.enabled);
+    for (const [key, subscription] of creatorSubscriptions) {
+      try {
+        if (!subscriptionIsCurrent((await getAppState()).subscriptions[key], subscription)) continue;
+        const listing = await loadSubscriptionVideos(subscription, loadSection);
+        const known = new Set(subscription.lastSeenIds ?? []);
+        const needsBaseline = subscription.baselinePending || subscription.baselineVersion !== 2;
+        const newItems = needsBaseline ? [] : listing.items.filter(item => !known.has(String(item.id)));
+        let accepted = newItems.length === 0;
+        if (newItems.length && subscription.mode === "download") {
+          await ensureOffscreenDocument();
+          const status = await chrome.runtime.sendMessage({
+            type: MESSAGE.cacheCommand,
+            command: "status",
+            target: "offscreen"
+          });
+          if (status?.ok && status.data?.directory?.permission === "granted") {
+            if (!subscriptionIsCurrent((await getAppState()).subscriptions[key], subscription)) continue;
+            const tracks = newItems.map(track => ({
+              ...track,
+              creator: { id: creator.id, name: creator.name },
+              sectionTitle: subscription.section.title
+            }));
+            await chrome.runtime.sendMessage({
+              type: MESSAGE.cacheCommand,
+              command: "cacheTracks",
+              payload: {
+                tracks,
+                section: subscription.section,
+                format: state.settings.defaultFormat,
+                bitrate: state.settings.mp3Bitrate
+              },
+              target: "offscreen"
+            });
+            accepted = true;
+          }
+        }
+        subscriptionUpdates[key] = { subscription, patch: {
+          lastCheckedAt: Date.now(),
+          baselinePending: false,
+          baselineVersion: 2,
+          lastError: accepted ? null : "缓存目录不可用，新作品已保留待下次检查",
+          lastSeenIds: accepted ? listing.items.map(item => String(item.id)) : subscription.lastSeenIds
+        } };
+      } catch (error) {
+        subscriptionUpdates[key] = { subscription, patch: { lastCheckedAt: Date.now(), lastError: toErrorMessage(error) } };
+      }
     }
   }
   await updateStorageValue(STORAGE_KEYS.updateState, current => ({ ...(current ?? {}), ...results }));
@@ -317,9 +316,9 @@ async function checkCreators() {
   return results;
 }
 
-async function setSubscription({ creatorId, section, enabled, mode = "download", lastSeenIds = [] }) {
+async function setSubscription({ creatorId, section, enabled, mode = "download" }) {
   const key = `${creatorId}:${section.key ?? `${section.type}:${section.id}`}`;
-  const subscriptions = await updateStorageValue(STORAGE_KEYS.subscriptions, current => {
+  let subscriptions = await updateStorageValue(STORAGE_KEYS.subscriptions, current => {
     const next = { ...(current ?? {}) };
     if (!enabled) delete next[key];
     else {
@@ -334,7 +333,9 @@ async function setSubscription({ creatorId, section, enabled, mode = "download",
         enabled: true,
         revision: crypto.randomUUID(),
         mode,
-        lastSeenIds: lastSeenIds.map(String),
+        lastSeenIds: [],
+        baselinePending: true,
+        baselineVersion: 2,
         createdAt: next[key]?.createdAt ?? Date.now(),
         lastCheckedAt: next[key]?.lastCheckedAt ?? null,
         lastError: null
@@ -342,6 +343,19 @@ async function setSubscription({ creatorId, section, enabled, mode = "download",
     }
     return next;
   });
+  if (enabled) {
+    const subscription = subscriptions[key];
+    let patch;
+    try {
+      const listing = await loadSubscriptionVideos(subscription, loadSection);
+      patch = { baselinePending: false, baselineVersion: 2, lastSeenIds: listing.items.map(item => String(item.id)), lastError: null };
+    } catch (error) {
+      patch = { lastError: `建立追更基线失败，下次检查将重试：${toErrorMessage(error)}` };
+    }
+    subscriptions = await updateStorageValue(STORAGE_KEYS.subscriptions, current =>
+      mergeSubscriptionCheckResults(current, { [key]: { subscription, patch } })
+    );
+  }
   return subscriptions;
 }
 
