@@ -777,3 +777,13 @@
 - 解决方案：当前作品依据播放状态发送 pause 或 resume，其他作品按完整栏目队列切歌；图标、悬浮说明及 aria-label 表达相同动作。
 - 验证方式：真实 UI 测试确认暂停与恢复保留原 83 秒位置和队列，其他作品正确切换；播放标记、多栏目同 BV 与标签同步测试通过。
 - 相关文件：ui/app.js、ui/track-playback.js、tests/track-playback.test.mjs、tests/ui-track-actions.test.mjs。
+
+### ISSUE-065 缓存权限或暂时读取错误导致索引被删除
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：撤回文件权限或发生暂时磁盘 I/O 异常后索引被清除，恢复访问后仍需扫描重建。
+- 原因：读取缓存捕获全部异常并按文件失效处理。
+- 解决方案：仅确认 NotFoundError 或文件大小为零时清理对应位置；权限与其他访问异常保留索引并返回 accessErrors 诊断，继续尝试其他副本。
+- 验证方式：权限撤回、NotReadableError、根权限拒绝均保留索引；缺失与空文件清除；其他副本可用，恢复权限与设备后直接复用。缓存读取、根隔离及索引事务测试通过。
+- 相关文件：services/file-store.js、tests/cache-file-access.test.mjs。
