@@ -143,7 +143,11 @@ function assertCurrentLoad(load) {
 
 function waitForCanPlay(label, load, signal) {
   return waitForPlaybackEvent(audio, "canplay", signal,
-    () => new Error(`${label}失败：${mediaErrorText(audio.error)}`));
+    () => {
+      const error = new Error(`${label}失败：${mediaErrorText(audio.error)}`);
+      error.mediaErrorCode = Number(audio.error?.code) || 0;
+      return error;
+    });
 }
 
 function resumeSeekError(label, details) {
@@ -353,7 +357,9 @@ async function loadAndPlay(index, resumeAt = 0) {
         assertCurrentLoad(load);
         disposeCurrentSource();
         if (error?.code === "RESUME_SEEK_FAILED") throw error;
-        await deleteCacheLocation(cachedRecord.trackId, cached.location.id, cachedRecord.rootId);
+        if ([3, 4].includes(error.mediaErrorCode)) {
+          await deleteCacheLocation(cachedRecord.trackId, cached.location.id, cachedRecord.rootId);
+        }
       }
     }
     if (!source) {
