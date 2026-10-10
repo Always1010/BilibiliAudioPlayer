@@ -22,6 +22,7 @@ assert.notEqual(playerStructureKey({ ...player, mode: "single" }, { queueOpen: t
 assert.notEqual(playerStructureKey({ ...player, playbackRate: 1.5 }, { queueOpen: true }), initial);
 assert.notEqual(playerStructureKey({ ...player, source: { kind: "cache", format: "mp3", bitrate: 192 } }, { queueOpen: true }), initial);
 assert.notEqual(playerStructureKey({ ...player, queueIndex: -1 }, { queueOpen: true }), initial);
+assert.notEqual(playerStructureKey({ ...player, currentTrack: { ...player.currentTrack, id: "BV2" } }, { queueOpen: true }), initial);
 assert.notEqual(playerStructureKey(player, { queueOpen: false }), initial);
 
 console.log("播放器渲染策略：时间更新局部刷新，结构变化触发重建通过");
