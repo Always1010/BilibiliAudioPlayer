@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import { abortablePlayback, throwIfPlaybackAborted, waitForPlaybackEvent } from "../../services/playback-loading.js";
 import { normalizePlaybackRate } from "../../services/playback-rate.js";
+import { playbackScopeKey } from "../../services/playback-checkpoints.js";
 import { MESSAGE, DEFAULT_PLAYER } from "../../shared/constants.js";
 
 export async function createOffscreenHarness() {
@@ -32,7 +33,7 @@ export async function createOffscreenHarness() {
     onlinePlaybackSource: () => ({ kind: 'online' }),
     playbackProgressReportPolicy: () => ({ shouldReport: false }),
     insertQueueItems: () => [], removeQueueItem(queue, index, current) { return { queue: queue.filter((_, i) => i !== index), currentIndex: 0, removedCurrent: index === current }; }, reorderQueue: () => ({}),
-    PLAYBACK_RESUME_END_THRESHOLD: 5, playbackScopeKey: () => '',
+    PLAYBACK_RESUME_END_THRESHOLD: 5, playbackScopeKey,
   });
   let source = await readFile(new URL('../../offscreen/offscreen.js', import.meta.url), 'utf8');
   source = source.replace(/^import\s[\s\S]*?;\r?\n/gm, '');
