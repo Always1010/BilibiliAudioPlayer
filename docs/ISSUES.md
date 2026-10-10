@@ -656,7 +656,7 @@
 - 验证方式：扩展缓存目录树、目录文件操作和归档清单测试，覆盖级联选择、任务目标匹配、空间统计、精确文件删除、失效文件清理、空目录安全清理和清单条目更新；执行全部 Node 测试、JavaScript 语法检查、Manifest 0.10.1 JSON 检查与 `git diff --check`。
 - 相关文件：`services/cache-library.js`、`services/file-store.js`、`services/archive-manifest.js`、`offscreen/offscreen.js`、`ui/app.js`、`ui/app.css`、`tests/cache-library.test.mjs`、`tests/file-store.test.mjs`、`tests/archive-manifest.test.mjs`、`manifest.json`、`README.md`、`docs/ISSUES.md`
 
-## ISSUE-053：异步存储更新覆盖用户已完成的编辑
+## ISSUE-064：异步存储更新覆盖用户已完成的编辑
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -666,7 +666,7 @@
 - 验证方式：播放状态存储及播放列表测试通过，覆盖并发更新、失败后继续、保存与清空/删除检查点顺序，以及时长修复期间新增、重命名、重排、删除列表和作品；相关 JavaScript 语法与 git diff --check 通过。
 - 相关文件：`shared/storage.js`、`services/playlists.js`、`background/service-worker.js`、`tests/playback-storage.test.mjs`、`tests/playlists.test.mjs`、`docs/ISSUES.md`
 
-## ISSUE-054：全部作品缓存在首个分页提前结束
+## ISSUE-065：全部作品缓存在首个分页提前结束
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -676,7 +676,7 @@
 - 验证方式：分页器及真实 UI 函数回归测试通过，覆盖请求 100 被限制到 50 后继续分页、120 条三页完整入队、截断响应不入队；相关 JavaScript 语法及 git diff --check 通过。
 - 相关文件：`ui/app.js`、`services/section-pagination.js`、`tests/section-pagination.test.mjs`、`tests/ui-section-pagination.test.mjs`、`tests/helpers/app-harness.mjs`、`docs/ISSUES.md`
 
-## ISSUE-055：缓存索引并发读改写丢失实体位置
+## ISSUE-066：缓存索引并发读改写丢失实体位置
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -686,7 +686,7 @@
 - 验证方式：索引事务、目录及缓存记录测试通过，覆盖并发新增两位置、删除与新增交叉、提交失败必须拒绝并回滚；文件存储 JavaScript 语法及 git diff --check 通过。
 - 相关文件：`services/file-store.js`、`tests/helpers/indexeddb.mjs`、`tests/file-store-transactions.test.mjs`、`docs/ISSUES.md`
 
-## ISSUE-056：过期音源请求在切歌或清空后重新启动播放
+## ISSUE-067：过期音源请求在切歌或清空后重新启动播放
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -696,7 +696,9 @@
 - 验证方式：执行真实离屏函数的受控时序回归通过，覆盖音源反序返回、加载中暂停、清空队列和媒体事件等待取消；相关 JavaScript 语法及 git diff --check 通过。
 - 相关文件：`offscreen/offscreen.js`、`services/playback-loading.js`、`tests/playback-loading.test.mjs`、`docs/ISSUES.md`
 
-## ISSUE-057：追更检查用旧快照恢复已关闭订阅
+- 补充修复与验证：媒体流读取返回、SourceBuffer 追加与缓冲等待均检查取消信号；恢复定位超时保留 RESUME_SEEK_FAILED 类型，避免误删可用本地缓存。UI 完整分页建立队列也检查播放意图代次，暂停、恢复、切歌、清空、移除及新的播放请求使旧分页意图失效；8 种控制入口与普通浏览分页回归通过。补充文件：ui/app.js、tests/ui-playback-intent.test.mjs、tests/helpers/offscreen.mjs。
+
+## ISSUE-068：追更检查用旧快照恢复已关闭订阅
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -706,7 +708,7 @@
 - 验证方式：执行真实后台函数的订阅并发测试通过，覆盖检查期间关闭、新增和修改配置、关闭后不入队、同时触发检查仅执行一次；相关 JavaScript 语法及 git diff --check 通过。
 - 相关文件：`background/service-worker.js`、`services/subscriptions.js`、`tests/subscription-concurrency.test.mjs`、`tests/helpers/background-harness.mjs`、`docs/ISSUES.md`
 
-## ISSUE-058：切歌与恢复会丢失用户选择的播放倍速
+## ISSUE-069：切歌与恢复会丢失用户选择的播放倍速
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -716,7 +718,7 @@
 - 验证方式：倍速和播放加载回归通过，模拟 load 重置及 ratechange，覆盖 hydrate、加载期间修改倍速和切歌后保持；相关语法及 git diff --check 通过。
 - 相关文件：`offscreen/offscreen.js`、`tests/playback-rate.test.mjs`、`tests/playback-loading.test.mjs`、`tests/helpers/offscreen.mjs`、`docs/ISSUES.md`
 
-## ISSUE-059：过期页面请求覆盖当前内容与操作归属
+## ISSUE-070：过期页面请求覆盖当前内容与操作归属
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -726,7 +728,9 @@
 - 验证方式：真实 UI 与后台函数的受控时序测试通过，覆盖 UP/栏目反序响应、旧搜索/分页错误、缓存中切换 UP 与格式、离页取消播放、后台读取资料保持选择及不复活关注；相关语法与 git diff --check 通过。
 - 相关文件：`ui/app.js`、`background/service-worker.js`、`tests/ui-async-context.test.mjs`、`tests/creator-loading.test.mjs`、`docs/ISSUES.md`
 
-## ISSUE-060：集合完成标记被自动循环与会话恢复清除
+- 补充修复与验证：关注与取消关注的异步响应先校验页面代次，再赋值关注列表快照，反序返回不能覆盖最新列表；真实 UI 控制响应顺序回归通过。
+
+## ISSUE-071：集合完成标记被自动循环与会话恢复清除
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -736,7 +740,7 @@
 - 验证方式：检查点、播放存储和加载测试通过，覆盖两轮自动转曲、暂停保留完成、主动重播清除及存储恢复；相关语法及 git diff --check 通过。
 - 相关文件：`offscreen/offscreen.js`、`shared/storage.js`、`docs/PLAYBACK.md`、`tests/playback-checkpoints.test.mjs`、`tests/playback-storage.test.mjs`、`tests/helpers/offscreen.mjs`、`docs/ISSUES.md`
 
-## ISSUE-061：损坏归档清单使整个扫描中断
+## ISSUE-072：损坏归档清单使整个扫描中断
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -746,7 +750,7 @@
 - 验证方式：归档清单测试覆盖对象形状、null/字符串成员、非法文件名、缺失作用域及正常清单兼容，相关语法和 git diff --check 通过。
 - 相关文件：`services/archive-manifest.js`、`tests/archive-manifest.test.mjs`、`docs/ISSUES.md`
 
-## ISSUE-062：全部作品单首起播只建立部分集合队列
+## ISSUE-073：全部作品单首起播只建立部分集合队列
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -756,7 +760,7 @@
 - 验证方式：真实 UI 回归覆盖主页 30 条预览与详情 50 条在 120 条集合中读取三页，完整队列、所选起播项及倒序一致；UI 异步上下文、语法和 git diff --check 通过。
 - 相关文件：`ui/app.js`、`tests/ui-track-queue.test.mjs`、`docs/ISSUES.md`
 
-### ISSUE-063 缓存根目录切换后索引可能误用同名文件
+## ISSUE-074：缓存根目录切换后索引可能误用同名文件
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -766,7 +770,7 @@
 - 验证方式：缓存根目录、索引事务、文件存储、真实 UI 根目录与播放加载回归测试通过；验证 A/B 同路径隔离、切回保留、过期删除拒绝、忙时切换拒绝、旧索引保留与迟到句柄失效。
 - 相关文件：services/file-store.js、services/cache-records.js、services/cache-library.js、offscreen/offscreen.js、ui/app.js、docs/CACHE.md、tests/cache-root.test.mjs、tests/ui-cache-root.test.mjs 及对应测试辅助文件。
 
-### ISSUE-064 作品行暂停按钮重新建立播放队列
+## ISSUE-075：作品行暂停按钮重新建立播放队列
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -776,7 +780,7 @@
 - 验证方式：真实 UI 测试确认暂停与恢复保留原 83 秒位置和队列，其他作品正确切换；播放标记、多栏目同 BV 与标签同步测试通过。
 - 相关文件：ui/app.js、ui/track-playback.js、tests/track-playback.test.mjs、tests/ui-track-actions.test.mjs。
 
-### ISSUE-065 缓存权限或暂时读取错误导致索引被删除
+## ISSUE-076：缓存权限或暂时读取错误导致索引被删除
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -786,7 +790,7 @@
 - 验证方式：权限撤回、NotReadableError、根权限拒绝均保留索引；缺失与空文件清除；其他副本可用，恢复权限与设备后直接复用。缓存读取、根隔离及索引事务测试通过。
 - 相关文件：services/file-store.js、tests/cache-file-access.test.mjs。
 
-### ISSUE-066 追更局部分页遗漏新增并误判初始基线
+## ISSUE-077：追更局部分页遗漏新增并误判初始基线
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -797,7 +801,9 @@
 - 相关文件：background/service-worker.js、services/subscriptions.js、tests/subscription-pagination.test.mjs、tests/helpers/background-harness.mjs。
 - 升级行为：已有追更订阅首次检查会重新建立完整基线，该次检测到的差异作为历史基线处理；此后完整分页识别新增。
 
-### ISSUE-067 不同 MP3 码率覆盖实体文件并重复计算副本
+- 补充修复与验证：建立订阅的首次基线只在 baselinePending 仍为 true 时合并，避免检查流程已完成基线后，迟到的初始读取覆盖最新发现列表。
+
+## ISSUE-078：不同 MP3 码率覆盖实体文件并重复计算副本
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -807,7 +813,7 @@
 - 验证方式：真实 downloadTrack 的 192/320 本地复制路径生成不同名称并保留两个内容；旧重复物理路径压为一个位置，容量与作用域正确，未知副本不满足指定码率匹配，新明确码率不覆盖旧未知索引。缓存记录、文件名、清单、根隔离和真实 UI 测试通过。
 - 相关文件：offscreen/offscreen.js、services/archive-manifest.js、services/cache-records.js、ui/app.js、docs/CACHE.md、tests/cache-filenames.test.mjs、tests/cache-records.test.mjs、tests/archive-manifest.test.mjs、tests/ui-cache-root.test.mjs。
 
-### ISSUE-068 重复扫描为同一实体文件新增恢复位置
+## ISSUE-079：重复扫描为同一实体文件新增恢复位置
 
 - 日期：2026-10-10
 - 状态：已解决
@@ -817,7 +823,7 @@
 - 验证方式：真实 scanner 两轮扫描保持一个实体位置，容量按真实大小刷新，已知与未知码率各自保留；损坏清单降级后继续扫描其他目录。归档扫描、缓存记录及清单测试通过。
 - 相关文件：offscreen/offscreen.js、services/cache-records.js、docs/CACHE.md、tests/archive-scan.test.mjs、tests/cache-records.test.mjs。
 
-### ISSUE-069 自动追更把入队当作完成且失败后无法恢复
+## ISSUE-080：自动追更把入队当作完成且失败后无法恢复
 
 - 日期：2026-10-10
 - 状态：已解决
