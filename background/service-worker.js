@@ -222,7 +222,11 @@ async function loadCreator(id, force = false) {
     ...(current ?? {}),
     [id]: content
   }));
-  if (creator) await addCreator(creator);
+  if (creator) {
+    await updateStorageValue(STORAGE_KEYS.creators, current => (current ?? []).map(item =>
+      String(item.id) === String(id) ? { ...item, ...creator } : item
+    ));
+  }
   return content;
 }
 
