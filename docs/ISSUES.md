@@ -695,3 +695,13 @@
 - 解决方案：每次加载创建可取消会话，在异步边界后验证身份，切歌与清空取消旧会话；媒体就绪、定位和容器初始化等待可取消且有超时。独立记录用户最新播放意图，旧会话不能报告错误或清理新音源，加载完成遵循暂停状态。
 - 验证方式：执行真实离屏函数的受控时序回归通过，覆盖音源反序返回、加载中暂停、清空队列和媒体事件等待取消；相关 JavaScript 语法及 git diff --check 通过。
 - 相关文件：`offscreen/offscreen.js`、`services/playback-loading.js`、`tests/playback-loading.test.mjs`、`docs/ISSUES.md`
+
+## ISSUE-057：追更检查用旧快照恢复已关闭订阅
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：自动追更期间关闭或修改订阅，检查结束后旧订阅被恢复，或期间新增的订阅消失；迟到的响应可能继续提交已关闭订阅的自动缓存。
+- 原因：检查开始复制整张订阅表，结束整表覆盖，缺少配置身份与入队前复验。
+- 解决方案：订阅配置使用独立修订号，检查结果仅合并到仍启用且修订一致的最新订阅；入队前复验当前配置。相同时间触发的检查复用一次执行，避免重叠快照互相覆盖。
+- 验证方式：执行真实后台函数的订阅并发测试通过，覆盖检查期间关闭、新增和修改配置、关闭后不入队、同时触发检查仅执行一次；相关 JavaScript 语法及 git diff --check 通过。
+- 相关文件：`background/service-worker.js`、`services/subscriptions.js`、`tests/subscription-concurrency.test.mjs`、`tests/helpers/background-harness.mjs`、`docs/ISSUES.md`
