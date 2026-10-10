@@ -1826,8 +1826,8 @@ root.addEventListener("click", async event => {
     else if (action === "add-creator") {
       const creator = ui.searchResults.find(item => String(item.id) === String(button.dataset.id));
       const result = await send(MESSAGE.addCreator, { creator });
-      ui.app.creators = result.creators;
       if (generation !== pageGeneration) return;
+      ui.app.creators = result.creators;
       ui.app.settings.activeCreatorId = result.creator.id;
       ui.searchResults = [];
       ui.searchKeyword = "";
@@ -1839,8 +1839,9 @@ root.addEventListener("click", async event => {
     else if (action === "refresh-creator") await loadActiveCreator(true);
     else if (action === "remove-creator") {
       const removed = activeCreator();
-      ui.app.creators = await send(MESSAGE.removeCreator, { id: removed.id });
+      const creators = await send(MESSAGE.removeCreator, { id: removed.id });
       if (generation !== pageGeneration) return;
+      ui.app.creators = creators;
       ui.app.settings.activeCreatorId = ui.app.creators[0]?.id ?? null;
       ui.activeContent = null;
       ui.notice = `已从扩展列表移除“${removed.name}”，本地音频文件不会删除。`;

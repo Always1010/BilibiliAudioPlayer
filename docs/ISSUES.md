@@ -766,8 +766,6 @@
 - 验证方式：缓存根目录、索引事务、文件存储、真实 UI 根目录与播放加载回归测试通过；验证 A/B 同路径隔离、切回保留、过期删除拒绝、忙时切换拒绝、旧索引保留与迟到句柄失效。
 - 相关文件：services/file-store.js、services/cache-records.js、services/cache-library.js、offscreen/offscreen.js、ui/app.js、docs/CACHE.md、tests/cache-root.test.mjs、tests/ui-cache-root.test.mjs 及对应测试辅助文件。
 
-- ISSUE-056 补充验证（2026-10-10）：媒体流读取返回、SourceBuffer 追加与缓冲等待均检查取消信号，已取消任务立即终止；恢复定位超时保留 RESUME_SEEK_FAILED 类型，避免误删仍可使用的本地缓存。播放加载与倍速回归测试通过。
-
 ### ISSUE-064 作品行暂停按钮重新建立播放队列
 
 - 日期：2026-10-10
