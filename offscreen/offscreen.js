@@ -808,8 +808,8 @@ async function handleCacheCommand(command, payload = {}) {
     if (targets.some(target => busy.has(`${String(target.trackId)}\u0000${target.locationId}`))) {
       throw new Error("所选缓存仍在下载或等待队列中，请在任务结束后再删除");
     }
-    return withCacheDirectoryOperation(async () => {
-      const deletion = await deleteCacheFiles(targets);
+    return withCacheDirectoryOperation(async (_root, _rootId, lease) => {
+      const deletion = await deleteCacheFiles(targets, lease);
       const manifestErrors = await updateDeletedPlaylistManifests(deletion.root, deletion.results);
       const { root, ...summary } = deletion;
       const [directory, records] = await Promise.all([getCacheDirectoryInfo(), listCacheRecords()]);

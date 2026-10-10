@@ -14,6 +14,8 @@ const ROOT_RECORD_STORE = "root-records";
 const DIRECTORY_KEY = "cache-directory";
 const ROOTS_KEY = "cache-roots";
 const DIRECTORY_LOCK = "bili-audio-cache-directory";
+const FILE_OPERATION_LOCK = "bili-audio-cache-files";
+const activeOperations = new WeakSet();
 
 export function createDirectoryHandleCache(loader) {
   let cached = null;
@@ -149,11 +151,17 @@ async function loadDirectoryState() {
 const directoryHandleCache = createDirectoryHandleCache(async () => (await loadDirectoryState())?.handle);
 
 export function withCacheDirectoryOperation(operation) {
-  return withDirectoryLock("shared", async () => {
+  // Root selection is held first; file operations then run one at a time.
+  // Index writes only acquire the root lock, so they remain callable inside a
+  // file operation without recursively requesting this exclusive lock.
+  return withDirectoryLock("shared", () => navigator.locks.request(FILE_OPERATION_LOCK, async () => {
     const selected = await loadDirectoryState();
     const root = await requireWritableDirectory();
-    return operation(root, selected.rootId);
-  });
+    const lease = { root, rootId: selected.rootId };
+    activeOperations.add(lease);
+    try { return await operation(root, selected.rootId, lease); }
+    finally { activeOperations.delete(lease); }
+  }));
 }
 
 export async function chooseCacheDirectory() {
@@ -294,7 +302,11 @@ export async function pruneEmptyCacheDirectories(root, path) {
   return removed;
 }
 
-export async function deleteCacheFiles(targets) {
+export async function deleteCacheFiles(targets, lease = null) {
+  if (lease) {
+    if (!activeOperations.has(lease)) throw new Error("缓存文件操作已结束，请重新执行删除");
+    return deleteCacheFilesInDirectory(targets, lease.root, lease.rootId);
+  }
   return withCacheDirectoryOperation((root, rootId) => deleteCacheFilesInDirectory(targets, root, rootId));
 }
 
