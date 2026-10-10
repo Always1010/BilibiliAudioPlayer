@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { MESSAGE, STORAGE_KEYS, UPDATE_ALARM } from "../../shared/constants.js";
-import { mergeSubscriptionCheckResults, subscriptionIsCurrent } from "../../services/subscriptions.js";
+import { loadSubscriptionVideos, mergeSubscriptionCheckResults, subscriptionIsCurrent } from "../../services/subscriptions.js";
 
 export async function backgroundHarness(values, overrides = {}) {
   const noopListener = { addListener() {} };
@@ -10,7 +10,7 @@ export async function backgroundHarness(values, overrides = {}) {
   const context = vm.createContext({
     console, crypto: webcrypto, setTimeout, clearTimeout,
     MESSAGE, STORAGE_KEYS, UPDATE_ALARM,
-    mergeSubscriptionCheckResults, subscriptionIsCurrent,
+    loadSubscriptionVideos, mergeSubscriptionCheckResults, subscriptionIsCurrent,
     getAppState: async () => structuredClone(values),
     toErrorMessage: error => error.message,
     updateStorageValue(key, updater) {
