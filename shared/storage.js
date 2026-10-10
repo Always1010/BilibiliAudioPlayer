@@ -14,6 +14,21 @@ import {
   updatePlaybackCheckpoints
 } from "../services/playback-checkpoints.js";
 
+// All writers run in the background worker. Reserve every affected key before
+// starting a read so multi-key player updates also coordinate with deletions.
+const pendingWrites = new Map();
+function withStorageKeys(keys, operation) {
+  const unique = [...new Set(keys)];
+  const previous = unique.map(key => pendingWrites.get(key) ?? Promise.resolve());
+  const task = Promise.all(previous).then(operation);
+  const settled = task.catch(() => {});
+  for (const key of unique) pendingWrites.set(key, settled);
+  settled.then(() => {
+    for (const key of unique) if (pendingWrites.get(key) === settled) pendingWrites.delete(key);
+  });
+  return task;
+}
+
 function playerSessionState(player) {
   const session = { ...player };
   delete session.currentTime;
@@ -33,6 +48,10 @@ function dormantPlayerPreferences(player) {
 }
 
 export async function initializeStorage() {
+  return withStorageKeys(Object.values(STORAGE_KEYS), initializeStorageUnlocked);
+}
+
+async function initializeStorageUnlocked() {
   const stored = await chrome.storage.local.get(Object.values(STORAGE_KEYS));
   const changes = {};
 
@@ -97,14 +116,23 @@ export async function getAppState() {
 }
 
 export async function updateStorageValue(key, updater) {
-  const stored = await chrome.storage.local.get(key);
-  const current = stored[key];
-  const next = await updater(current);
-  await chrome.storage.local.set({ [key]: next });
-  return next;
+  return withStorageKeys([key], async () => {
+    const stored = await chrome.storage.local.get(key);
+    const current = stored[key];
+    const next = await updater(current);
+    await chrome.storage.local.set({ [key]: next });
+    return next;
+  });
 }
 
 export async function savePlayerState(patch) {
+  return withStorageKeys([
+    STORAGE_KEYS.player, STORAGE_KEYS.playbackProgress, STORAGE_KEYS.playbackCheckpoints,
+    STORAGE_KEYS.settings, STORAGE_KEYS.playlists
+  ], () => savePlayerStateUnlocked(patch));
+}
+
+async function savePlayerStateUnlocked(patch) {
   const stored = await chrome.storage.local.get([
     STORAGE_KEYS.player,
     STORAGE_KEYS.playbackProgress,
@@ -150,6 +178,12 @@ export async function savePlayerState(patch) {
 }
 
 export async function clearPlaybackHistory() {
+  return withStorageKeys([
+    STORAGE_KEYS.player, STORAGE_KEYS.playbackProgress, STORAGE_KEYS.playbackCheckpoints
+  ], clearPlaybackHistoryUnlocked);
+}
+
+async function clearPlaybackHistoryUnlocked() {
   const stored = await chrome.storage.local.get(STORAGE_KEYS.player);
   const player = dormantPlayerPreferences({ ...DEFAULT_PLAYER, ...(stored[STORAGE_KEYS.player] ?? {}) });
   await chrome.storage.local.set({

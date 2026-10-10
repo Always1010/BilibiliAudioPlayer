@@ -6,6 +6,7 @@ import {
   normalizePlaylistItem,
   playlistItemToTrack,
   repairPlaylistDurations,
+  mergePlaylistDurations,
   removeTrackFromPlaylist,
   renamePlaylist,
   reorderPlaylistTrack
@@ -59,6 +60,16 @@ stalePlaylists[0].items = [{ bvid: "BVZERO", title: "待补全", duration: 0, ad
 const repaired = await repairPlaylistDurations(stalePlaylists, async item => ({ duration: item.bvid === "BVZERO" ? 123 : 0 }), 2000);
 assert.equal(repaired[0].items[0].duration, 123);
 assert.equal(repaired[0].updatedAt, 2000);
+let concurrent = renamePlaylist(stalePlaylists, "p2", "期间重命名", 2100);
+concurrent = addTracksToPlaylist(concurrent, "p2", [{ bvid: "BVNEW", title: "期间新增" }], 2200);
+concurrent = reorderPlaylistTrack(concurrent, "p2", 1, 0, 2300);
+const merged = mergePlaylistDurations(concurrent, repaired, 2400);
+assert.equal(merged[0].name, "期间重命名");
+assert.deepEqual(merged[0].items.map(item => item.bvid), ["BVNEW", "BVZERO"]);
+assert.equal(merged[0].items[1].duration, 123);
+assert.deepEqual(mergePlaylistDurations(deletePlaylist(concurrent, "p2"), repaired), [], "修复不得复活已删除列表");
+assert.equal(mergePlaylistDurations(removeTrackFromPlaylist(concurrent, "p2", "BVZERO"), repaired)[0].items.length, 1,
+  "修复不得复活已删除作品");
 assert.deepEqual(deletePlaylist(playlists, "p1"), []);
 
 console.log("播放列表：最小快照、去重、排序、删除和队列转换通过");

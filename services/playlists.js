@@ -61,6 +61,22 @@ export async function repairPlaylistDurations(playlists, resolveVideo, now = Dat
   return next;
 }
 
+export function mergePlaylistDurations(playlists, repaired, now = Date.now()) {
+  const durations = new Map(normalizePlaylists(repaired).map(playlist => [playlist.id,
+    new Map(playlist.items.filter(item => item.duration > 0).map(item => [item.bvid, item.duration]))
+  ]));
+  return normalizePlaylists(playlists).map(playlist => {
+    let changed = false;
+    const items = playlist.items.map(item => {
+      const duration = durations.get(playlist.id)?.get(item.bvid);
+      if (item.duration > 0 || !duration) return item;
+      changed = true;
+      return { ...item, duration };
+    });
+    return changed ? { ...playlist, items, updatedAt: now } : playlist;
+  });
+}
+
 export function normalizePlaylists(value) {
   if (!Array.isArray(value)) return [];
   const ids = new Set();

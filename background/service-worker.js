@@ -29,7 +29,7 @@ import {
   renamePlaylist,
   reorderPlaylistTrack
 } from "../services/playlists.js";
-import { repairPlaylistDurations } from "../services/playlists.js";
+import { mergePlaylistDurations, repairPlaylistDurations } from "../services/playlists.js";
 import { mergeImportedPlaylists } from "../services/playlist-transfer.js";
 import { favoriteSectionMetadata } from "../services/favorite-section-metadata.js";
 import {
@@ -339,7 +339,9 @@ async function handlePlaylistCommand(command, payload = {}) {
     return normalizePlaylists(stored[STORAGE_KEYS.playlists]);
   }
   if (command === "repairDurations") {
-    return updateStorageValue(STORAGE_KEYS.playlists, current => repairPlaylistDurations(current, item => getVideoInfo(item)));
+    const stored = await chrome.storage.local.get(STORAGE_KEYS.playlists);
+    const repaired = await repairPlaylistDurations(stored[STORAGE_KEYS.playlists], item => getVideoInfo(item));
+    return updateStorageValue(STORAGE_KEYS.playlists, current => mergePlaylistDurations(current, repaired));
   }
   if (command === "delete") {
     const playlists = await updateStorageValue(STORAGE_KEYS.playlists, current => deletePlaylist(current, payload.playlistId));
