@@ -35,6 +35,17 @@ assert.equal(second.items[0].filename, first.items[0].filename);
 assert.equal(second.items[1].format, "original");
 assert.deepEqual(parseArchiveManifest(JSON.stringify(second)), second);
 assert.equal(parseArchiveManifest("not json"), null);
+for (const invalid of [
+  { ...second, items: {} },
+  { ...second, items: [null] },
+  { ...second, items: ["broken"] },
+  { ...second, items: [{ bvid: tracks[0].bvid, filename: {} }] },
+  { ...second, items: [{ bvid: tracks[0].bvid, filename: "../audio.mp3" }] },
+  { ...second, scope: null },
+  { ...second, scope: { key: "playlist:p1", type: "invalid" } }
+]) {
+  assert.equal(parseArchiveManifest(JSON.stringify(invalid)), null, "无效清单应回退文件名识别而不是中断扫描");
+}
 assert.deepEqual(parseArchiveAudioFilename("001 - 第一首 [BV1ARCHIVE1].mp3"), {
   title: "第一首",
   bvid: "BV1ARCHIVE1",

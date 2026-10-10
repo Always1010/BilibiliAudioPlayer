@@ -43,6 +43,21 @@ export function parseArchiveManifest(source) {
   try {
     const value = JSON.parse(String(source));
     if (value?.schema !== ARCHIVE_MANIFEST_SCHEMA || value.schemaVersion !== ARCHIVE_MANIFEST_VERSION) return null;
+    if (!value.scope || Array.isArray(value.scope) || typeof value.scope !== "object"
+      || typeof value.scope.key !== "string" || !value.scope.key.trim()
+      || !["playlist", "season", "series", "all", "recovered"].includes(value.scope.type)
+      || !Array.isArray(value.items)) return null;
+    for (const item of value.items) {
+      if (!item || Array.isArray(item) || typeof item !== "object"
+        || typeof item.bvid !== "string" || !/^BV[0-9A-Za-z]{6,30}$/i.test(item.bvid)) return null;
+      for (const key of ["filename", "title", "creatorId", "creatorName"]) {
+        if (item[key] != null && typeof item[key] !== "string") return null;
+      }
+      if (item.filename && /[/\\]/.test(item.filename)) return null;
+      for (const key of ["position", "duration", "size", "bitrate"]) {
+        if (item[key] != null && (!Number.isFinite(Number(item[key])) || Number(item[key]) < 0)) return null;
+      }
+    }
     return value;
   } catch {
     return null;
