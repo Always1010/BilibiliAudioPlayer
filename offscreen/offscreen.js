@@ -74,7 +74,7 @@ function publicPlayerState(patch = {}) {
     playbackRate: state.playbackRate,
     mode: state.mode,
     error: null,
-    checkpointCompleted: Boolean(patch.checkpointCompleted),
+    checkpointCompleted: Boolean(state.checkpointCompleted),
     ...patch
   };
 }
@@ -799,6 +799,7 @@ async function handleCommand(command, payload = {}) {
     case "status":
       return { ...publicPlayerState(), hydrated };
     case "playQueue":
+      state.checkpointCompleted = false;
       state.queue = payload.queue ?? [];
       state.queueContext = payload.queueContext ?? { kind: "manual", title: "播放队列" };
       state.mode = payload.mode ?? state.mode;
@@ -826,6 +827,7 @@ async function handleCommand(command, payload = {}) {
       if (!state.queue.length) {
         cancelPlaybackLoad();
         desiredPlaying = false;
+        state.checkpointCompleted = false;
         state.currentTrack = null;
         state.currentTime = 0;
         state.duration = 0;
@@ -842,6 +844,7 @@ async function handleCommand(command, payload = {}) {
     case "clearQueue":
       cancelPlaybackLoad();
       desiredPlaying = false;
+      state.checkpointCompleted = false;
       state.queue = [];
       state.queueIndex = -1;
       state.queueContext = null;
@@ -912,8 +915,8 @@ audio.addEventListener("timeupdate", () => {
   }
 });
 audio.addEventListener("ended", async () => {
-  const checkpointCompleted = Boolean(playbackScopeKey(state.queueContext)
-    && state.queueIndex === state.queue.length - 1);
+  const checkpointCompleted = Boolean(state.checkpointCompleted || (playbackScopeKey(state.queueContext)
+    && state.queueIndex === state.queue.length - 1));
   try {
     await report({ currentTime: Number.isFinite(audio.duration) ? audio.duration : state.currentTime, checkpointCompleted });
     if (state.mode === "single") await loadAndPlay(state.queueIndex);

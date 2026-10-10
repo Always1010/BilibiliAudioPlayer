@@ -34,7 +34,6 @@ function playerSessionState(player) {
   delete session.currentTime;
   delete session.duration;
   delete session.updatedAt;
-  delete session.checkpointCompleted;
   return session;
 }
 

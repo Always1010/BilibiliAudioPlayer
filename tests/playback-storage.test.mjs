@@ -81,6 +81,13 @@ const appState = await getAppState();
 assert.equal(appState.player.currentTime, 68);
 assert.equal(appState.player.queue[1].id, "BV2");
 
+await savePlayerState({ ...player, queueIndex: 0, currentTrack: queue[0], currentTime: 10, checkpointCompleted: true });
+assert.equal(values.player.checkpointCompleted, true, "全局会话持久化集合完成标记");
+assert.equal((await getAppState()).player.checkpointCompleted, true);
+assert.equal(values.playbackCheckpoints.scopes["playlist:p1"].completed, true);
+await savePlayerState({ ...player, currentTime: 0, checkpointCompleted: false });
+assert.equal(values.playbackCheckpoints.scopes["playlist:p1"].completed, false, "主动重播清除完成标记");
+
 await saveSettings({ rememberProgress: false });
 await savePlayerState({ ...player, currentTime: 70 });
 assert.deepEqual(values.player.queue, []);

@@ -725,3 +725,13 @@
 - 解决方案：导航、UP 主、搜索和详情各自维护代次，过期响应、进度、错误及 finally 不修改当前状态。栏目绑定所属 UP 主，异步操作提前捕获栏目、排序与缓存格式；离页后取消待建播放队列。后台资料读取只更新仍关注对象，不修改选择或恢复已移除关注。
 - 验证方式：真实 UI 与后台函数的受控时序测试通过，覆盖 UP/栏目反序响应、旧搜索/分页错误、缓存中切换 UP 与格式、离页取消播放、后台读取资料保持选择及不复活关注；相关语法与 git diff --check 通过。
 - 相关文件：`ui/app.js`、`background/service-worker.js`、`tests/ui-async-context.test.mjs`、`tests/creator-loading.test.mjs`、`docs/ISSUES.md`
+
+## ISSUE-060：集合完成标记被自动循环与会话恢复清除
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：最后一首结束后完成检查点立即被循环首项覆盖，集合无法稳定显示重新播放；浏览器重启也丢失完成状态。
+- 原因：每次公开状态默认将完成字段设为 false，会话存档还主动删除该字段。
+- 解决方案：完成标记作为会话状态持续保留，自动循环和暂停更新实际位置但不清除；用户主动建立新播放队列或清空时开始新一轮。会话存档保留完成字段，并明确全局恢复与集合重新播放的区别。
+- 验证方式：检查点、播放存储和加载测试通过，覆盖两轮自动转曲、暂停保留完成、主动重播清除及存储恢复；相关语法及 git diff --check 通过。
+- 相关文件：`offscreen/offscreen.js`、`shared/storage.js`、`docs/PLAYBACK.md`、`tests/playback-checkpoints.test.mjs`、`tests/playback-storage.test.mjs`、`tests/helpers/offscreen.mjs`、`docs/ISSUES.md`
