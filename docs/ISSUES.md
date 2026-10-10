@@ -675,3 +675,13 @@
 - 解决方案：缓存全部复用完整栏目分页器，全部作品请求 50 条，并根据响应的实际 pageSize 继续分页。完整读取去重后统一入队；空页、重复页或截断数据明确报错，不把部分作品当作完整栏目提交。
 - 验证方式：分页器及真实 UI 函数回归测试通过，覆盖请求 100 被限制到 50 后继续分页、120 条三页完整入队、截断响应不入队；相关 JavaScript 语法及 git diff --check 通过。
 - 相关文件：`ui/app.js`、`services/section-pagination.js`、`tests/section-pagination.test.mjs`、`tests/ui-section-pagination.test.mjs`、`tests/helpers/app-harness.mjs`、`docs/ISSUES.md`
+
+## ISSUE-055：缓存索引并发读改写丢失实体位置
+
+- 日期：2026-10-10
+- 状态：已解决
+- 现象：扫描、缓存和播放清理并发更新同一作品时，位置可能丢失或已删除位置再次出现；事务最终提交失败也可能被报告成功。
+- 原因：缓存记录读取与写入分属两个事务，且存储工具只等待请求成功，没有等待事务完成。
+- 解决方案：缓存位置新增与移除在单个 readwrite 事务中执行读取、合并及写回，事务内部不等待网络或文件 I/O；存储操作统一等待事务 oncomplete 并处理 error、abort。
+- 验证方式：索引事务、目录及缓存记录测试通过，覆盖并发新增两位置、删除与新增交叉、提交失败必须拒绝并回滚；文件存储 JavaScript 语法及 git diff --check 通过。
+- 相关文件：`services/file-store.js`、`tests/helpers/indexeddb.mjs`、`tests/file-store-transactions.test.mjs`、`docs/ISSUES.md`
